@@ -1,6 +1,7 @@
 import tensorflow as tf
 import tensorflow.contrib.eager as tfe
 import numpy as np
+import h5py
 
 def parse_function(filename, label):
     image_string = tf.read_file(filename)
@@ -71,3 +72,13 @@ def get_cub_data(image_file, class_file, box_file, batch_size, num_threads=4, mo
     dataset = dataset.batch(batch_size)
     dataset = dataset.prefetch(1)
     return dataset
+
+# This must be done for each category! Separately! Do the evaluation for 
+# Airplane, Car, Horse
+def get_obj_data():
+    
+
+def get_svhn_data(image_fol, mat):
+    cwd = os.getcwd()
+    fp  = h5py.File(mat)
+
