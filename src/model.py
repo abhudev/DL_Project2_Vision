@@ -3,8 +3,8 @@ import tensorflow.contrib.eager as tfe
 import numpy as np
 import os
 import time
-from tf.keras.layers import Conv2D, MaxPool2D, ZeroPadding2D, Dense, Dropout, Flatten
-from tf.nn import local_response_normalization as lrn
+from tensorflow.keras.layers import Conv2D, MaxPool2D, ZeroPadding2D, Dense, Dropout, Flatten
+from tensorflow.nn import local_response_normalization as lrn
 
 # Followed tutorial on https://github.com/madalinabuzau/tensorflow-eager-tutorials/blob/master/07_convolutional_neural_networks_for_emotion_recognition.ipynb
 
@@ -56,13 +56,13 @@ class BaseAlexnet(tf.keras.Model):
 #         super(AttnAlexnet, self).__init__()
 #         # Possibly experiment - different initializations
 #         # TODO - regularization? see paper
-        
 
 def loss_alex(alexCNN, datum, mode):
     # Assuming datum[0] is data. datum[1] is labels
-    # logits = alexCNN(datum[0], mode)
-    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=alexCNN(datum[0], mode), labels=datum[1])
-    return tf.reduce_sum(loss)/tf.size(datum[1])
+    logits = alexCNN(datum[0], mode)
+    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=datum[1])
+    # loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=alexCNN(datum[0], mode), labels=datum[1])
+    return tf.reduce_sum(loss)/ tf.cast(tf.size(datum[1]), dtype=tf.float32)
 
 alex_loss_grads = tfe.implicit_value_and_gradients(loss_alex)
 

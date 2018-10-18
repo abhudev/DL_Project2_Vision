@@ -10,8 +10,6 @@ import time
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', type=str)
-parser.add_argument('--task', type=str)
 
 # :: Data used ::
 parser.add_argument('--data', type=str)
@@ -58,11 +56,11 @@ parser.add_argument('--ckpt_file', type=str, default='ckpt')
 
 # :: Train parameters ::
 parser.add_argument('--opt', type=str, default='adam')
-parser.add_argument('--lr', type=float, default=0.02)
+parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--drop', type=float, default=0.5)
 parser.add_argument('--bsize', type=int, default=64)
 parser.add_argument('--device', type=str, default="/gpu:0")
-parser.add_argument()
+parser.add_argument('--num_epochs', type=str, default=50)
 args = parser.parse_args()
 
 if(args.data != 'cifar10'):
@@ -111,10 +109,10 @@ elif(args.opt == 'sgd'):
 train_data = data_feed.get_cifar_10_data(args.cifar10_train_img, args.cifar10_train_classes, args.bsize)
 # test_data = data_feed.get_cifar_10_data(args.cifar10_test_img, args.cifar10_test_classes, args.bsize, mode='eval')
 
-saver = tfe.Checkpoint(optimizer=opt, model=model.BaseAlexnet, optimizer_step=tf.train.get_or_create_global_step())
-saver.restore(tf.train.latest_checkpoint(regular_checkpoint_dir))
+saver = tfe.Checkpoint(optimizer=opt, model=vanilla_alex, optimizer_step=tf.train.get_or_create_global_step())
+saver.restore(tf.train.latest_checkpoint(regular_ckpt_prefix))
 
-STATS_STEPS = 10
+STATS_STEPS = 1
 EVAL_STEPS = 50
 
 
@@ -122,14 +120,15 @@ with tf.device(args.device):
     start_reg = time.time()
     for epoch_num in range(args.num_epochs):
         # batch_loss = []        
-        if(epoch_num > 0):
-            saver.restore(tf.train.latest_checkpoint(ckpt_prefix))            
+        # if(epoch_num > 0):
+        #     saver.restore(tf.train.latest_checkpoint(ckpt_prefix))            
             
         log_msg(f"Begin Epoch {epoch_num} with restored model")
         start_reg = time.time()
         # :: CIFAR 10 epoch ::
         for step_num, datum in enumerate(train_data, start=1):            
-            loss_value, gradients = model.alex_loss_grads(vanilla_alex, datum, 'train')            
+            loss_value, gradients = model.alex_loss_grads(vanilla_alex, datum, 'train')
+            opt.apply_gradients(gradients, global_step=tf.train.get_or_create_global_step())    
 
             if step_num % STATS_STEPS == 0:
                 log_msg(f'Epoch: {epoch_num} Step: {step_num} Avg Loss: {np.average(np.asarray(loss_value))}')

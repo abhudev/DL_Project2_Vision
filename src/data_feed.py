@@ -1,7 +1,7 @@
 import tensorflow as tf
 import tensorflow.contrib.eager as tfe
 import numpy as np
-import h5py
+# import h5py
 
 def parse_function(filename, label):
     image_string = tf.read_file(filename)
@@ -9,7 +9,7 @@ def parse_function(filename, label):
     image = tf.image.decode_png(image_string, channels=3)
     # This will convert to float values in [0, 1]
     image = tf.image.convert_image_dtype(image, tf.float32)
-    image = tf.image.resize_images(image, [64, 64])
+    image = tf.image.resize_images(image, [227, 227])
     return image, label
 
 def get_cifar_10_data(image_file, class_file, batch_size, num_threads=4, mode='train'):
@@ -18,7 +18,7 @@ def get_cifar_10_data(image_file, class_file, batch_size, num_threads=4, mode='t
         for line in fim:
             filenames.append(line.strip('\n'))
         for line in fcin:
-            labels.append(line.strip('\n'))
+            labels.append(int(line.strip('\n')))
     
     dataset = tf.data.Dataset.from_tensor_slices((filenames, labels))
     dataset = dataset.shuffle(len(filenames))
@@ -44,7 +44,7 @@ def get_cifar_100_data(data_file, batch_size, num_threads=4, mode='train'):
     dataset = dataset.map(preprocess_cifar100, num_parallel_calls=num_threads)
     return dataset
 
-def parse_function(filename, label, box):
+def parse_function_cub(filename, label, box):
     image_string = tf.read_file(filename)
     # Don't use tf.image.decode_image, or the output shape will be undefined
     image = tf.image.decode_jpeg(image_string, channels=3)
