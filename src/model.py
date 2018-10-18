@@ -33,12 +33,14 @@ class BaseAlexnet(tf.keras.Model):
         
         
     # Input - datum[0], datum[1] or datum[2], datum[3]
-    def call(self, inputImg, mode='train'):        
+    def call(self, inputImg, mode='train'):  
+        # print(tf.reduce_max(inputImg))      
         o1 = lrn(self.pool1(self.conv1(inputImg)), 2, 2e-05, 0.75)
         o2 = lrn((self.pool2(self.conv2(self.pad(o1)))), 2, 2e-05, 0.75)
         o3 = self.conv3(o2)
         o4 = self.conv4(o3)
         o5 = self.conv5(o4)
+        # print(tf.shape(o5))
         pooled_o5 = self.pool3(o5)
         flat_o5 = self.flat(pooled_o5)
         o6 = self.fc6(flat_o5)

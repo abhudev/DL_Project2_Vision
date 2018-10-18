@@ -17,6 +17,8 @@ parser.add_argument('--data', type=str)
 # :: CIFAR 10 data ::
 parser.add_argument('--cifar10_train_img', type=str, default='train_text/train_img_cifar10.txt')
 parser.add_argument('--cifar10_train_classes', type=str, default='train_text/train_classes_cifar10.txt')
+parser.add_argument('--cifar10_dev_img', type=str, default='train_text/dev_img_cifar10.txt')
+parser.add_argument('--cifar10_dev_classes', type=str, default='train_text/dev_classes_cifar10.txt')
 parser.add_argument('--cifar10_test_img', type=str, default='train_text/test_img_cifar10.txt')
 parser.add_argument('--cifar10_test_classes', type=str, default='train_text/test_classes_cifar10.txt')
 
@@ -56,11 +58,11 @@ parser.add_argument('--ckpt_file', type=str, default='ckpt')
 
 # :: Train parameters ::
 parser.add_argument('--opt', type=str, default='adam')
-parser.add_argument('--lr', type=float, default=0.001)
+parser.add_argument('--lr', type=float, default=0.0001)
 parser.add_argument('--drop', type=float, default=0.5)
 parser.add_argument('--bsize', type=int, default=64)
 parser.add_argument('--device', type=str, default="/gpu:0")
-parser.add_argument('--num_epochs', type=str, default=50)
+parser.add_argument('--num_epochs', type=str, default=200)
 args = parser.parse_args()
 
 if(args.data != 'cifar10'):
@@ -107,7 +109,7 @@ elif(args.opt == 'sgd'):
     opt = tf.train.GradientDescentOptimizer(learning_rate=args.lr)
 
 train_data = data_feed.get_cifar_10_data(args.cifar10_train_img, args.cifar10_train_classes, args.bsize)
-# test_data = data_feed.get_cifar_10_data(args.cifar10_test_img, args.cifar10_test_classes, args.bsize, mode='eval')
+dev_data = data_feed.get_cifar_10_data(args.cifar10_dev_img, args.cifar10_dev_classes, args.bsize, mode='eval')
 
 saver = tfe.Checkpoint(optimizer=opt, model=vanilla_alex, optimizer_step=tf.train.get_or_create_global_step())
 saver.restore(tf.train.latest_checkpoint(regular_ckpt_prefix))
@@ -131,7 +133,12 @@ with tf.device(args.device):
             opt.apply_gradients(gradients, global_step=tf.train.get_or_create_global_step())    
 
             if step_num % STATS_STEPS == 0:
-                log_msg(f'Epoch: {epoch_num} Step: {step_num} Avg Loss: {np.average(np.asarray(loss_value))}')
+                acc = tfe.metrics.Accuracy()
+                for dev_d in dev_data:
+                    logits = vanilla_alex(dev_d[0], 'eval')
+                    preds = tf.argmax(logits, axis=1)
+                    acc(tf.reshape(tf.cast(dev_d[1], dtype=tf.int64), [-1,]), preds)
+                log_msg(f'Epoch: {epoch_num} Step: {step_num} Avg Loss: {np.average(np.asarray(loss_value))} Dev accurac: {acc.result().numpy()}')
                 batch_loss = []
         
             # if step_num % EVAL_STEPS == 0:
