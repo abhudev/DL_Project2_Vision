@@ -73,12 +73,35 @@ def get_cub_data(image_file, class_file, box_file, batch_size, num_threads=4, mo
     dataset = dataset.prefetch(1)
     return dataset
 
+def parse_odd(train, ground):
+    string1, string2 = tf.read_file(train), tf.read_file(ground)
+    # Don't use tf.image.decode_image, or the output shape will be undefined
+    train_img = tf.image.decode_jpeg(string1, channels=3)
+    ground_img = tf.image.decode_png(string2, channels=3)
+    # This will convert to float values in [0, 1]
+    train_img = tf.image.convert_image_dtype(train_img, tf.float32)
+    ground_img = tf.image.convert_image_dtype(ground_img, tf.float32)
+    image = tf.image.resize_images(image, [64, 64])
+    return train_img, ground_img
+
 # This must be done for each category! Separately! Do the evaluation for 
 # Airplane, Car, Horse
-def get_obj_data():
+def get_obj_data(inp_img, ground_truth, batch_size, num_threads=4, mode='train'):
+    with open(inp_img, 'r') as fim, open(ground_truth, 'r') as fg:
+        timg, gimg = [], []
+        for line in fim:
+            timg.append(line.strip('\n'))
+        for line in fcin:
+            gimg.append(line.strip('\n'))
     
+    dataset = tf.data.Dataset.from_tensor_slices((timg, gimg))
+    dataset = dataset.shuffle(len(timg))
+    dataset = dataset.map(parse_odd, num_parallel_calls=num_threads)
+    # dataset = dataset.map(train_preprocess, num_parallel_calls=4)
+    dataset = dataset.batch(batch_size)
+    dataset = dataset.prefetch(1)
+    return dataset
 
 def get_svhn_data(image_fol, mat):
     cwd = os.getcwd()
     fp  = h5py.File(mat)
-
