@@ -23,9 +23,9 @@ parser.add_argument('--cifar10_test_img', type=str, default='train_text/test_img
 parser.add_argument('--cifar10_test_classes', type=str, default='train_text/test_classes_cifar10.txt')
 
 # :: CIFAR 100 data ::
-parser.add_argument('--cifar100_train', type=str, default="../../Proj2_data/Datasets/CIFAR/cifar-100-python/train")
-parser.add_argument('--cifar100_test', type=str, default="../../Proj2_data/Datasets/CIFAR/cifar-100-python/test")
-parser.add_argument('--cifar100_meta', type=str, default="../../Proj2_data/Datasets/CIFAR/cifar-100-python/meta")
+parser.add_argument('--cifar100_train', type=str, default="../../Proj2_data/Datasets/CIFAR/cifar-100-python/train/")
+parser.add_argument('--cifar100_test', type=str, default="../../Proj2_data/Datasets/CIFAR/cifar-100-python/test/")
+parser.add_argument('--cifar100_meta', type=str, default="../../Proj2_data/Datasets/CIFAR/cifar-100-python/meta/")
 
 # :: CUB data ::
 parser.add_argument('--cub_train_img', type=str, default='train_text/train_img_CUB.txt')
@@ -45,14 +45,14 @@ parser.add_argument('--odd_car_img', type=str, default='train_text/Car_train.txt
 parser.add_argument('--odd_car_ground', type=str, default='train_text/Car_ground.txt')
 
 # :: Checkpoints ::
-parser.add_argument('--ckpt_dir_cifar10', type=str, default='../Checkpoints_cifar10')
-parser.add_argument('--ckpt_dir_cifar10_regular', type=str, default='../Checkpoints_cifar10_regular')
-parser.add_argument('--ckpt_dir_cifar100', type=str, default='../Checkpoints_cifar100')
-parser.add_argument('--ckpt_dir_cifar100_regular', type=str, default='../Checkpoints_cifar100_regular')
-parser.add_argument('--ckpt_dir_cub', type=str, default='../Checkpoints_cub')
-parser.add_argument('--ckpt_dir_cub_regular', type=str, default='../Checkpoints_cub_regular')
-parser.add_argument('--ckpt_dir_svhn', type=str, default='../Checkpoints_svhn')
-parser.add_argument('--ckpt_dir_svhn_regular', type=str, default='../Checkpoints_svhn_regular')
+parser.add_argument('--ckpt_dir_cifar10', type=str, default='../Checkpoints_cifar10/')
+parser.add_argument('--ckpt_dir_cifar10_regular', type=str, default='../Checkpoints_cifar10_regular/')
+parser.add_argument('--ckpt_dir_cifar100', type=str, default='../Checkpoints_cifar100/')
+parser.add_argument('--ckpt_dir_cifar100_regular', type=str, default='../Checkpoints_cifar100_regular/')
+parser.add_argument('--ckpt_dir_cub', type=str, default='../Checkpoints_cub/')
+parser.add_argument('--ckpt_dir_cub_regular', type=str, default='../Checkpoints_cub_regular/')
+parser.add_argument('--ckpt_dir_svhn', type=str, default='../Checkpoints_svhn/')
+parser.add_argument('--ckpt_dir_svhn_regular', type=str, default='../Checkpoints_svhn_regular/')
 parser.add_argument('--ckpt_file', type=str, default='ckpt')
 
 
@@ -112,11 +112,13 @@ train_data = data_feed.get_cifar_10_data(args.cifar10_train_img, args.cifar10_tr
 dev_data = data_feed.get_cifar_10_data(args.cifar10_dev_img, args.cifar10_dev_classes, args.bsize, mode='eval')
 
 saver = tfe.Checkpoint(optimizer=opt, model=vanilla_alex, optimizer_step=tf.train.get_or_create_global_step())
-saver.restore(tf.train.latest_checkpoint(regular_ckpt_prefix))
+# saver.restore(tf.train.latest_checkpoint(regular_ckpt_prefix))
+saver.restore(tf.train.latest_checkpoint(ckpt_prefix))
 
-STATS_STEPS = 1
-EVAL_STEPS = 50
+STATS_STEPS = 25
+EVAL_STEPS = 100
 
+init_acc = 0
 
 with tf.device(args.device):
     start_reg = time.time()
@@ -133,22 +135,25 @@ with tf.device(args.device):
             opt.apply_gradients(gradients, global_step=tf.train.get_or_create_global_step())    
 
             if step_num % STATS_STEPS == 0:
+                
+                log_msg(f'Epoch: {epoch_num} Step: {step_num} Avg Loss: {np.average(np.asarray(loss_value))}')
+                batch_loss = []
+        
+            if step_num % EVAL_STEPS == 0:
+                # Compute test accuracy
+                #Save model!
                 acc = tfe.metrics.Accuracy()
                 for dev_d in dev_data:
                     logits = vanilla_alex(dev_d[0], 'eval')
                     preds = tf.argmax(logits, axis=1)
                     acc(tf.reshape(tf.cast(dev_d[1], dtype=tf.int64), [-1,]), preds)
-                log_msg(f'Epoch: {epoch_num} Step: {step_num} Avg Loss: {np.average(np.asarray(loss_value))} Dev accurac: {acc.result().numpy()}')
-                batch_loss = []
-        
-            # if step_num % EVAL_STEPS == 0:
-            #     # Compute test accuracy
-            #     #Save model!
-            #     if ppl < valid_ppl_nmt:
-            #         saver.save(ckpt_prefix)                
-            #         log_msg(f'Epoch: {epoch_num} Step: {step_num} ppl improved: {} old: {} Model saved')
-            #     else:
-            #         log_msg(f'Epoch: {epoch_num} Step: {step_num} ppl worse: {} old: {}')
+                new_acc = acc.result().numpy()
+                if new_acc > init_acc:
+                    saver.save(ckpt_prefix)                
+                    log_msg(f'Epoch: {epoch_num} Step: {step_num} acc improved: {new_acc} old: {init_acc} Model saved')
+                    init_acc = new_acc
+                else:
+                    log_msg(f'Epoch: {epoch_num} Step: {step_num} acc worse: {new_acc} old: {init_acc}')
                 
             if((time.time() - start_reg)/3600 >= 1.0):
                 saver.save(reg_ckpt)                
