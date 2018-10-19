@@ -55,12 +55,14 @@ class BaseAlexnet(tf.keras.Model):
 
 # Move pooling layers after conv layers
 class AttnAlexnet(tf.keras.Model):
-    def __init__(self, num_classes, keep_prob):
+    def __init__(self, num_classes, keep_prob, cost='dp', combine='concat'):
         super(BaseAlexnet, self).__init__()
         # Possibly experiment - different initializations
         # TODO - regularization? see paper
         self.num_classes = num_classes
         self.keep_prob = keep_prob
+        self.cost = cost
+        self.combine = combine
         self.conv1 = Conv2D(96, 11, strides=(4,4), activation='relu')
         self.pad = ZeroPadding2D(padding=(2,2))
         self.conv2 = Conv2D(256, 5, activation='relu')
@@ -78,6 +80,9 @@ class AttnAlexnet(tf.keras.Model):
         
         self.linear_map4 = Dense(units=384)
         self.linear_map5 = Dense(units=256)
+        if(self.cost == 'pc'):
+            self.u4 = tfe.Variable(tf.random_uniform(minval=-1.0, maxval=1.0, shape=[1,1,1,384]))
+            self.u5 = tfe.Variable(tf.random_uniform(minval=-1.0, maxval=1.0, shape=[1,1,1,256]))
         
         self.drop7 = Dropout(rate=self.keep_prob)
         self.fc8 = Dense(units=self.num_classes)
@@ -112,7 +117,11 @@ class AttnAlexnet(tf.keras.Model):
         map_to_4, map_to_5 = self.linear_map4(o7), self.linear_map5(o7)
         map_to_4, map_to_5 = tf.reshape(map_to_4, [bsize, 1, 1, numc_4]), tf.reshape(map_to_5, [bsize, 1, 1, numc_5])
 
-        c_4, c_5 = tf.reduce_sum(o4 * map_to_4, axis=-1), tf.reduce_sum(o5 * map_to_5, axis=-1)
+        c_4, c_5 = [], []
+        if(self.cost == 'dp'):
+            c_4, c_5 = tf.reduce_sum(o4 * map_to_4, axis=-1), tf.reduce_sum(o5 * map_to_5, axis=-1)
+        elif(self.cost == 'pc'):
+            c_4, c_5 = tf.reduce_sum(self.u4*(o4+map_to_4), axis=-1), tf.reduce_sum(self.u5*(o5+map_to_5), axis=-1)
         c_4, c_5 = tf.reshape(c_4, [bsize, -1]), tf.reshape(c_5, [bsize, -1])
         a_4, a_5 = tf.nn.softmax(c_4), tf.nn.softmax(c_5)
         a_4, a_5 = tf.reshape(a_4, [bsize, o4_x*o4_y, 1]), tf.reshape(a_5, [bsize, o5_x*o5_y, 1])
