@@ -78,12 +78,19 @@ class AttnAlexnet(tf.keras.Model):
         self.drop6 = Dropout(rate=self.keep_prob)
         self.fc7 = Dense(units=4096, activation='relu')
         
-        self.linear_map4 = Dense(units=384)
-        self.linear_map5 = Dense(units=256)
+        self.linear_map4 = Dense(units=384, use_bias=False)
+        self.linear_map5 = Dense(units=256, use_bias=False)
         if(self.cost == 'pc'):
             self.u4 = tfe.Variable(tf.random_uniform(minval=-1.0, maxval=1.0, shape=[1,1,1,384]))
             self.u5 = tfe.Variable(tf.random_uniform(minval=-1.0, maxval=1.0, shape=[1,1,1,256]))
         
+        if(self.combine == 'concat'):
+            self.attn_fc = Dense(units=num_classes, use_bias=False)
+        elif(self.combine == 'indep'):
+            self.attn_fc4 = Dense(units=num_classes, use_bias=False)
+            self.attn_fc5 = Dense(units=num_classes, use_bias=False)
+
+
         self.drop7 = Dropout(rate=self.keep_prob)
         self.fc8 = Dense(units=self.num_classes)
         
@@ -108,10 +115,23 @@ class AttnAlexnet(tf.keras.Model):
         
         # Use o4 and o5 to get attention
 
+        # Desctiption: We scale o7 to the sizes of conv4 and conv5 separately, and 
+
         bsize = tf.shape(o4)[0]
         numc_4, numc_5 = tf.shape(o4)[3], tf.shape(o5)[3]
         o4_x, o4_y = tf.shape(o4)[1].numpy(), tf.shape(o4)[2].numpy()
         o5_x, o5_y = tf.shape(o5)[1].numpy(), tf.shape(o5)[2].numpy()
+
+        #-----------------------------------------------
+        # Optional - map o4, o5 UP
+        # upsample_4, upsample_5 = self.linear_map4(o4), self.linear_map5(o5)
+        # o7 = tf.reshape(o7, [bsize, 1, 1, 4096])
+        # c_4, c_5 = [], []
+        # if(self.cost == 'dp'):
+        #     c_4, c_5 = tf.reduce_sum(upsample_4 * o7, axis=-1), tf.reduce_sum(upsample_5 * o7, axis=-1)
+        # elif(self.cost == 'pc'):
+        #     c_4, c_5 = tf.reduce_sum(self.u4*(upsample_4+o7), axis=-1), tf.reduce_sum(self.u5*(upsample_5+o7), axis=-1)
+        #-----------------------------------------------
 
         # reshaped_o4, reshaped_o5 = tf.reshape(o4, [-1, numc_4]), tf.reshape(o5, [-1, numc_5])
         map_to_4, map_to_5 = self.linear_map4(o7), self.linear_map5(o7)
@@ -128,32 +148,20 @@ class AttnAlexnet(tf.keras.Model):
         re_o4, re_o5 = tf.reshape(o4, [bsize, o4_x*o4_y, numc_4]), tf.reshape(o5, [bsize, o5_x*o5_y, numc_5])
         re_o4, re_o5 = tf.reduce_sum(re_o4 * a_4, axis=-2), tf.reduce_sum(re_o5 * a_5, axis=-2)
         
-
-
-        # # linear_map_o4, linear_map_o5 = self.linear_map4(reshaped_o4), self.linear_map5(reshaped_o5)
-        # mat_o7 = tf.reshape(o7, [-1, 1])
-        # c_4, c_5 = tf.matmul(linear_map_o4, mat_o7), tf.matmul(linear_map_o5, mat_o7)
-        # c_4, c_5 = tf.reshape(c_4, [bsize, o4_x*o4_y, 1]), tf.reshape(c_5, [bsize, o5_x*o5_y, 1])
-        # a_4, a_5 = tf.nn.softmax(c_4,axis=1), tf.nn.softmax(c_5,axis=1)
-        # reshaped_o4, reshaped_o5 = tf.reshape(reshaped_o4, [bsize, o4_x*o4_y, numc]), tf.reshape(reshaped_o5, [bsize, o5_x*o5_y, numc])
-        # a_4, a_5 = tf.reshape(a_4, [bsize, o4_x*o4_y, 1]), tf.reshape(a_5, [bsize, o5_x*o5_y, 1])
-        # g_4, g_5 = tf.reduce_sum(reshaped_o4*a_4, axis=1), tf.reduce_sum(reshaped_o5*a_5, axis=1)
-        
-
-
-        
-
-        # Now, use o7 to compute compatibility map
-        
-                
-        
-        return logits 
-        # Return 
-
+        penultimate = []
+        if(self.combine == 'concat'):
+            penultimate = tf.concat([re_o4, re_o5], axis=-1)
+            map_out = self.attn_fc(penultimate)
+            return map_out # logits
+        elif(self.combine == 'indep'):
+            map_out4 = self.attn_fc4(re_o4)
+            map_out5 = self.attn_fc5(re_o5)
+            prob_4, prob_5 = tf.nn.softmax(map_out4), tf.nn.softmax(map_out5)
+            return (prob_4+prob_5)/2.0
 
 
 def loss_alex(alexCNN, datum, mode):
-    # Assuming datum[0] is data. datum[1] is labels
+    # Assuming datum[0] is data. datum[1] is labels    
     logits = alexCNN(datum[0], mode)
     loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=datum[1])
     # loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=alexCNN(datum[0], mode), labels=datum[1])
@@ -161,4 +169,17 @@ def loss_alex(alexCNN, datum, mode):
 
 alex_loss_grads = tfe.implicit_value_and_gradients(loss_alex)
 
+def loss_attnalex(alexCNN, datum, mode):
+    if(alexCNN.combine == 'concat'):
+        # Assuming datum[0] is data. datum[1] is labels
+        logits = alexCNN(datum[0], mode)
+        loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=datum[1])
+        # loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=alexCNN(datum[0], mode), labels=datum[1])
+        return tf.reduce_sum(loss)/ tf.cast(tf.size(datum[1]), dtype=tf.float32)
+    else:
+        probs = alexCNN(datum[0], mode)
+        loss = probs[datum[1]] # Probability of the CORRECT label!
+        return tf.reduce_sum(loss)/ tf.cast(tf.size(datum[1]), dtype=tf.float32)
+
+attnalex_loss_grads = tfe.implicit_value_and_gradients(loss_attnalex)
 
