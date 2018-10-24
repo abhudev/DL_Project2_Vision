@@ -3,8 +3,9 @@ import tensorflow.contrib.eager as tfe
 import numpy as np
 import os
 import time
-from tensorflow.keras.layers import Conv2D, MaxPool2D, ZeroPadding2D, Dense, Dropout, Flatten
+from tensorflow.keras.layers import Conv2D, MaxPool2D, ZeroPadding2D, Dense, Dropout, Flatten, Add
 from tensorflow.nn import local_response_normalization as lrn
+import tensorflow.keras.backend as K
 
 # Followed tutorial on https://github.com/madalinabuzau/tensorflow-eager-tutorials/blob/master/07_convolutional_neural_networks_for_emotion_recognition.ipynb
 
@@ -56,7 +57,7 @@ class BaseAlexnet(tf.keras.Model):
 # Move pooling layers after conv layers
 class AttnAlexnet(tf.keras.Model):
     def __init__(self, num_classes, keep_prob, cost='dp', combine='concat'):
-        super(BaseAlexnet, self).__init__()
+        super(AttnAlexnet, self).__init__()
         # Possibly experiment - different initializations
         # TODO - regularization? see paper
         self.num_classes = num_classes
@@ -93,25 +94,31 @@ class AttnAlexnet(tf.keras.Model):
 
         self.drop7 = Dropout(rate=self.keep_prob)
         self.fc8 = Dense(units=self.num_classes)
+
+        self.map_4_to_5 = Dense(units=256, use_bias=False)
+        self.add_4_5 = Add()
         
         
     # Input - datum[0], datum[1] or datum[2], datum[3]
     def call(self, inputImg, mode='train'):  
         # print(tf.reduce_max(inputImg))      
-        o1 = lrn(self.conv1(inputImg), 2, 2e-05, 0.75)
-        o2 = lrn(self.conv2(self.pad(o1)), 2, 2e-05, 0.75)
+        o1 = lrn(self.pool1(self.conv1(inputImg)), 2, 2e-05, 0.75)
+        o2 = lrn(self.pool2(self.conv2(self.pad(o1))), 2, 2e-05, 0.75)
         o3 = self.conv3(o2)
+        o3 = self.pool3(o3)
         o4 = self.conv4(o3)
         o5 = self.conv5(o4)
         # Shifted pooling layers down
-        pooled_o5 = self.pool3(self.pool2(self.pool1(o5)))
+        # pooled_o5 = self.pool3(self.pool2(self.pool1(o5)))
+        # pooled_o5 = self.pool3(o5)
+        pooled_o5 = (o5)
         flat_o5 = self.flat(pooled_o5)
         o6 = self.fc6(flat_o5)
-        if(mode == 'train'):
-            o6 = self.drop6(o6)
+        # if(mode == 'train'):
+        #     o6 = self.drop6(o6)
         o7 = self.fc7(o6)
-        if(mode == 'train'):
-            o7 = self.drop7(o7)
+        # if(mode == 'train'):
+        #     o7 = self.drop7(o7)
         
         # Use o4 and o5 to get attention
 
@@ -134,30 +141,84 @@ class AttnAlexnet(tf.keras.Model):
         #-----------------------------------------------
 
         # reshaped_o4, reshaped_o5 = tf.reshape(o4, [-1, numc_4]), tf.reshape(o5, [-1, numc_5])
-        map_to_4, map_to_5 = self.linear_map4(o7), self.linear_map5(o7)
-        map_to_4, map_to_5 = tf.reshape(map_to_4, [bsize, 1, 1, numc_4]), tf.reshape(map_to_5, [bsize, 1, 1, numc_5])
-
-        c_4, c_5 = [], []
-        if(self.cost == 'dp'):
-            c_4, c_5 = tf.reduce_sum(o4 * map_to_4, axis=-1), tf.reduce_sum(o5 * map_to_5, axis=-1)
-        elif(self.cost == 'pc'):
-            c_4, c_5 = tf.reduce_sum(self.u4*(o4+map_to_4), axis=-1), tf.reduce_sum(self.u5*(o5+map_to_5), axis=-1)
-        c_4, c_5 = tf.reshape(c_4, [bsize, -1]), tf.reshape(c_5, [bsize, -1])
-        a_4, a_5 = tf.nn.softmax(c_4), tf.nn.softmax(c_5)
-        a_4, a_5 = tf.reshape(a_4, [bsize, o4_x*o4_y, 1]), tf.reshape(a_5, [bsize, o5_x*o5_y, 1])
-        re_o4, re_o5 = tf.reshape(o4, [bsize, o4_x*o4_y, numc_4]), tf.reshape(o5, [bsize, o5_x*o5_y, numc_5])
-        re_o4, re_o5 = tf.reduce_sum(re_o4 * a_4, axis=-2), tf.reduce_sum(re_o5 * a_5, axis=-2)
         
-        penultimate = []
-        if(self.combine == 'concat'):
-            penultimate = tf.concat([re_o4, re_o5], axis=-1)
-            map_out = self.attn_fc(penultimate)
-            return map_out # logits
-        elif(self.combine == 'indep'):
-            map_out4 = self.attn_fc4(re_o4)
-            map_out5 = self.attn_fc5(re_o5)
-            prob_4, prob_5 = tf.nn.softmax(map_out4), tf.nn.softmax(map_out5)
-            return (prob_4+prob_5)/2.0
+        # 1
+        map_to_4 = self.linear_map4(o7) 
+        map_to_5 = self.linear_map5(o7)
+        
+        # 2
+        # Shapes:
+        # map_to_4 - [bsize, numc_4, 1]
+        # map_to_4 - [bsize, numc_5, 1]
+        map_to_4 = tf.expand_dims(map_to_4, axis=-1)
+        map_to_5 = tf.expand_dims(map_to_5, axis=-1)
+        o4 = tf.reshape(o4, [bsize, o4_x*o4_y, numc_4]) 
+        o5 = tf.reshape(o5, [bsize, o5_x*o5_y, numc_5])
+
+        # 3
+        c_4 = [] 
+        c_5 = []
+        if(self.cost == 'dp'):
+            c_4 = tf.matmul(o4, map_to_4)
+            c_5 = tf.matmul(o5, map_to_5)
+        # elif(self.cost == 'pc'):
+        #     # TODO - express as matmul
+        #     c_4 = tf.reduce_sum(self.u4*(o4+map_to_4), axis=-1)
+        #     c_5 = tf.reduce_sum(self.u5*(o5+map_to_5), axis=-1)
+        
+        # 4
+        c_4 = tf.reshape(c_4, [bsize, -1])
+        c_5 = tf.reshape(c_5, [bsize, -1])
+        a_4 = tf.nn.softmax(c_4)
+        a_5 = tf.nn.softmax(c_5)
+        
+        # 5
+        # Shapes:
+        # a_4 - [bsize, o4_x*o4_y, 1]
+        # a_5 - [bsize, o5_x*o5_y, 1]
+        a_4 = tf.expand_dims(a_4, axis=-1)
+        a_5 = tf.expand_dims(a_5, axis=-1)
+        o4 = tf.reshape(o4, [bsize, numc_4, o4_x*o4_y])
+        o5 = tf.reshape(o5, [bsize, numc_5, o5_x*o5_y])
+                
+        # 6
+        re_o4 = tf.matmul(o4, a_4)
+        re_o5 = tf.matmul(o5, a_5)
+        re_o4 = tf.squeeze(re_o4, [2])
+        re_o5 = tf.squeeze(re_o5, [2])
+        # re_o4 = self.map_4_to_5(re_o4)    # Project re_o4 to re_o5
+
+
+        # penultimate = []
+        # if(self.combine == 'concat'):
+        penultimate = tf.concat([re_o4, re_o5], axis=-1)
+        map_out = self.attn_fc(penultimate)
+        return map_out
+        # penultimate = tf.cast(tf.convert_to_tensor(np.random.random([int(bsize), 640])), dtype=tf.float32)
+        # penultimate2 = tf.cast(tf.convert_to_tensor(np.random.random([int(bsize), 640])), dtype=tf.float32)
+        # penultimate = penultimate + penultimate2
+
+        # out1 = self.attn_fc(re_o4)
+        # out2 = self.attn_fc(re_o5)
+        # return out1, out2
+
+        # re_o4 = tf.cast(re_o4, dtype=tf.float32)
+        # re_o5 = tf.cast(re_o5, dtype=tf.float32)
+
+        # penultimate = re_o4 + re_o5
+        # penultimate = tf.add_n([re_o4, re_o5])
+        # penultimate = self.add_4_5([re_o4, re_o5])
+        # penultimate = re_o4
+        # penultimate = K.concatenate([re_o4, re_o5])
+        # map_out = self.attn_fc(re_o4)
+        # return map_out # logits
+
+
+        # elif(self.combine == 'indep'):
+        #     map_out4 = self.attn_fc4(re_o4)
+        #     map_out5 = self.attn_fc5(re_o5)
+        #     prob_4, prob_5 = tf.nn.softmax(map_out4), tf.nn.softmax(map_out5)
+        #     return (prob_4+prob_5)/2.0
 
 
 def loss_alex(alexCNN, datum, mode):
@@ -172,6 +233,13 @@ alex_loss_grads = tfe.implicit_value_and_gradients(loss_alex)
 def loss_attnalex(alexCNN, datum, mode):
     if(alexCNN.combine == 'concat'):
         # Assuming datum[0] is data. datum[1] is labels
+        # logits1, logits2 = alexCNN(datum[0], mode)
+        # logits = tf.concat([logits1, logits2], axis=-1)
+        # logits = logits1+logits2
+        # loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=datum[1])
+        # loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=alexCNN(datum[0], mode), labels=datum[1])
+        # return tf.reduce_sum(loss)/ tf.cast(tf.size(datum[1]), dtype=tf.float32)
+
         logits = alexCNN(datum[0], mode)
         loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=datum[1])
         # loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=alexCNN(datum[0], mode), labels=datum[1])

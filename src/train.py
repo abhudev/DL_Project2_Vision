@@ -23,8 +23,9 @@ parser.add_argument('--cifar10_test_img', type=str, default='train_text/test_img
 parser.add_argument('--cifar10_test_classes', type=str, default='train_text/test_classes_cifar10.txt')
 
 # :: CIFAR 100 data ::
-parser.add_argument('--cifar100_train', type=str, default="../../Proj2_data/Datasets/CIFAR/cifar-100-python/train/")
-parser.add_argument('--cifar100_test', type=str, default="../../Proj2_data/Datasets/CIFAR/cifar-100-python/test/")
+parser.add_argument('--cifar100_train', type=str, default="../../Proj2_data/Datasets/CIFAR/cifar-100-python/train_new")
+parser.add_argument('--cifar100_dev', type=str, default="../../Proj2_data/Datasets/CIFAR/cifar-100-python/dev_new")
+parser.add_argument('--cifar100_test', type=str, default="../../Proj2_data/Datasets/CIFAR/cifar-100-python/test")
 parser.add_argument('--cifar100_meta', type=str, default="../../Proj2_data/Datasets/CIFAR/cifar-100-python/meta/")
 
 # :: CUB data ::
@@ -63,6 +64,7 @@ parser.add_argument('--drop', type=float, default=0.5)
 parser.add_argument('--bsize', type=int, default=64)
 parser.add_argument('--device', type=str, default="/gpu:0")
 parser.add_argument('--num_epochs', type=str, default=200)
+parser.add_argument('--model', type=str, default='attn')
 args = parser.parse_args()
 
 if(args.data != 'cifar10'):
@@ -100,25 +102,39 @@ regular_checkpoint_dir = {
 num_classes = class_no[args.data]
 ckpt_prefix = checkpoint_dir[args.data]+args.ckpt_file
 regular_ckpt_prefix = regular_checkpoint_dir[args.data]+args.ckpt_file
-vanilla_alex = model.BaseAlexnet(num_classes, args.drop)
+
+alex_model = []
+loss_fn = []
+if(args.model == 'vanilla'):
+    alex_model = model.BaseAlexnet(num_classes, args.drop)
+    loss_fn = model.alex_loss_grads
+elif (args.model == 'attn'):
+    alex_model = model.AttnAlexnet(num_classes, args.drop)
+    loss_fn = model.attnalex_loss_grads
+
 
 opt = []
 if(args.opt == 'adam'):
     opt = tf.train.AdamOptimizer(learning_rate=args.lr)
 elif(args.opt == 'sgd'):
     opt = tf.train.GradientDescentOptimizer(learning_rate=args.lr)
+train_data, dev_data = [], []
+if(args.data in ['cifar10', 'cub', 'svhn']):
+    train_data = data_feed.get_img_data(args.cifar10_train_img, args.cifar10_train_classes, args.bsize, args.data)
+    dev_data = data_feed.get_img_data(args.cifar10_dev_img, args.cifar10_dev_classes, args.bsize, args.data, mode='eval')
+elif(args.data == 'cifar100'):
+    train_data = data_feed.get_cifar100_data(args.cifar10_train_img, args.cifar10_train_classes, args.bsize, args.data)
+    dev_data = data_feed.get_cifar100_data(args.cifar10_dev_img, args.cifar10_dev_classes, args.bsize, args.data, mode='eval')
 
-train_data = data_feed.get_cifar_10_data(args.cifar10_train_img, args.cifar10_train_classes, args.bsize)
-dev_data = data_feed.get_cifar_10_data(args.cifar10_dev_img, args.cifar10_dev_classes, args.bsize, mode='eval')
-
-saver = tfe.Checkpoint(optimizer=opt, model=vanilla_alex, optimizer_step=tf.train.get_or_create_global_step())
+saver = tfe.Checkpoint(optimizer=opt, model=alex_model, optimizer_step=tf.train.get_or_create_global_step())
 # saver.restore(tf.train.latest_checkpoint(regular_ckpt_prefix))
-saver.restore(tf.train.latest_checkpoint(ckpt_prefix))
+# saver.restore(tf.train.latest_checkpoint(ckpt_prefix))
 
 STATS_STEPS = 25
 EVAL_STEPS = 100
 
 init_acc = 0
+# fp = open('train_curve.csv', 'w')
 
 with tf.device(args.device):
     start_reg = time.time()
@@ -127,16 +143,19 @@ with tf.device(args.device):
         # if(epoch_num > 0):
         #     saver.restore(tf.train.latest_checkpoint(ckpt_prefix))            
             
-        log_msg(f"Begin Epoch {epoch_num} with restored model")
+        log_msg(f"Begin Epoch {epoch_num}")
         start_reg = time.time()
         # :: CIFAR 10 epoch ::
         for step_num, datum in enumerate(train_data, start=1):            
-            loss_value, gradients = model.alex_loss_grads(vanilla_alex, datum, 'train')
+            # loss_value, gradients = model.alex_loss_grads(alex_model, datum, 'train')
+            # loss_value, gradients = model.attnalex_loss_grads(alex_model, datum, 'train')
+            loss_value, gradients = loss_fn(alex_model, datum, 'train')
             opt.apply_gradients(gradients, global_step=tf.train.get_or_create_global_step())    
 
             if step_num % STATS_STEPS == 0:
-                
-                log_msg(f'Epoch: {epoch_num} Step: {step_num} Avg Loss: {np.average(np.asarray(loss_value))}')
+                loss_avg = np.average(np.asarray(loss_value))
+                log_msg(f'Epoch: {epoch_num} Step: {step_num} Avg Loss: {loss_avg}')
+                # fp.write(str(loss_avg)+'\n')
                 batch_loss = []
         
             if step_num % EVAL_STEPS == 0:
@@ -144,7 +163,7 @@ with tf.device(args.device):
                 #Save model!
                 acc = tfe.metrics.Accuracy()
                 for dev_d in dev_data:
-                    logits = vanilla_alex(dev_d[0], 'eval')
+                    logits = alex_model(dev_d[0], 'eval')
                     preds = tf.argmax(logits, axis=1)
                     acc(tf.reshape(tf.cast(dev_d[1], dtype=tf.int64), [-1,]), preds)
                 new_acc = acc.result().numpy()
@@ -156,6 +175,6 @@ with tf.device(args.device):
                     log_msg(f'Epoch: {epoch_num} Step: {step_num} acc worse: {new_acc} old: {init_acc}')
                 
             if((time.time() - start_reg)/3600 >= 1.0):
-                saver.save(reg_ckpt)                
+                saver.save(regular_ckpt_prefix)                
                 log_msg(f'Epoch: {epoch_num} Step: {step_num} Model regularly saved')
                 start_reg = time.time()
