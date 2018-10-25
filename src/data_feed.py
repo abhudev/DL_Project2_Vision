@@ -11,7 +11,7 @@ def parse_cifar10(filename, label):
     image = tf.image.decode_png(image_string, channels=3)
     # This will convert to float values in [0, 1]
     image = tf.image.convert_image_dtype(image, tf.float32)
-    image = tf.image.resize_images(image, [227, 227])
+    image = tf.image.resize_images(image, [224, 224])
     return image, label
 
 
@@ -21,7 +21,7 @@ def parse_cub(filename, label, box):
     image = tf.image.decode_jpeg(image_string, channels=3)
     # This will convert to float values in [0, 1]
     image = tf.image.convert_image_dtype(image, tf.float32)
-    image = tf.image.resize_images(image, [227, 227])
+    image = tf.image.resize_images(image, [224, 224])
     return image, label
 
 
@@ -31,13 +31,13 @@ def parse_svhn(filename, label, box):
     image = tf.image.decode_jpeg(image_string, channels=3)
     # This will convert to float values in [0, 1]
     image = tf.image.convert_image_dtype(image, tf.float32)
-    image = tf.image.resize_images(image, [227, 227])
+    image = tf.image.resize_images(image, [224, 224])
     return image, label
 
 
 def preprocess_cifar100(img, label):
     img = tf.image.convert_image_dtype(img, tf.float32)
-    img = tf.image.resize_images(img, [227, 227])
+    img = tf.image.resize_images(img, [224, 224])
     return img, label
 
 
@@ -49,14 +49,14 @@ def parse_odd(train, ground):
     # This will convert to float values in [0, 1]
     train_img = tf.image.convert_image_dtype(train_img, tf.float32)
     ground_img = tf.image.convert_image_dtype(ground_img, tf.float32)
-    train_img = tf.image.resize_images(train_img, [227, 227])
-    ground_img = tf.image.resize_images(ground_img, [227, 227])
+    train_img = tf.image.resize_images(train_img, [224, 224])
+    ground_img = tf.image.resize_images(ground_img, [224, 224])
     return train_img, ground_img
 #---------------------------------------------------------------#
 
 func = {'cifar10': parse_cifar10, 'cub': parse_cub, 'svhn': parse_svhn}
 
-def get_img_data(image_file, class_file, batch_size, dataset, num_threads=4, mode='train'):
+def get_img_data(image_file, class_file, batch_size, in_data, num_threads=4, mode='train'):
     with open(image_file, 'r') as fim, open(class_file, 'r') as fcin:
         filenames, labels = [], []
         for line in fim:
@@ -65,8 +65,8 @@ def get_img_data(image_file, class_file, batch_size, dataset, num_threads=4, mod
             labels.append(int(line.strip('\n')))
     
     dataset = tf.data.Dataset.from_tensor_slices((filenames, labels))
-    dataset = dataset.shuffle(len(filenames))
-    parse_func = func[dataset]
+    dataset = dataset.shuffle(len(filenames))    
+    parse_func = func[in_data]
     dataset = dataset.map(parse_func, num_parallel_calls=num_threads)
     # dataset = dataset.map(train_preprocess, num_parallel_calls=4)
     dataset = dataset.batch(batch_size)
