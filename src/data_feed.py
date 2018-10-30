@@ -15,23 +15,24 @@ def parse_cifar10(filename, label):
     return image, label
 
 
-def parse_cub(filename, label, box):
+def parse_cub(filename, label):
     image_string = tf.read_file(filename)
     # Don't use tf.image.decode_image, or the output shape will be undefined
     image = tf.image.decode_jpeg(image_string, channels=3)
     # This will convert to float values in [0, 1]
     image = tf.image.convert_image_dtype(image, tf.float32)
     image = tf.image.resize_images(image, [227, 227])
-    return image, label
+    return image, label-1
 
 
-def parse_svhn(filename, label, box):
+def parse_svhn(filename, label):
     image_string = tf.read_file(filename)
     # Don't use tf.image.decode_image, or the output shape will be undefined
     image = tf.image.decode_jpeg(image_string, channels=3)
     # This will convert to float values in [0, 1]
     image = tf.image.convert_image_dtype(image, tf.float32)
     image = tf.image.resize_images(image, [227, 227])
+    label = label % 10
     return image, label
 
 
@@ -48,7 +49,7 @@ def parse_odd(in_img, ground):
     ground_img = tf.image.decode_png(string2, channels=3)
     # This will convert to float values in [0, 1]
     input_img = tf.image.convert_image_dtype(input_img, tf.float32)
-    ground_img = tf.image.convert_image_dtype(ground_img, tf.float32)
+    # ground_img = tf.image.convert_image_dtype(ground_img, tf.float32)
     input_img = tf.image.resize_images(input_img, [227, 227])
     ground_img = tf.image.resize_images(ground_img, [227, 227])
     return input_img, ground_img

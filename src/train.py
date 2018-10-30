@@ -6,9 +6,12 @@ import data_feed
 import model
 import numpy as np
 import os
+import sys
 import time
 import argparse
-from skimage import filters
+import pickle
+# from skimage import filters
+# import skimage
 import numpy as np
 
 parser = argparse.ArgumentParser()
@@ -39,17 +42,17 @@ parser.add_argument('--cifar100_test', type=str, default="../../Proj2_data/Datas
 parser.add_argument('--cifar100_meta', type=str, default="../../Proj2_data/Datasets/CIFAR/cifar-100-python/meta/")
 
 # :: CUB data ::
-parser.add_argument('--cub_train_img', type=str, default='train_text/train_img_CUB.txt')
-parser.add_argument('--cub_train_classes', type=str, default='train_text/train_classes_CUB.txt')
-parser.add_argument('--cub_train_bbox', type=str, default='train_text/train_bbox_CUB.txt')
+parser.add_argument('--cub_train_img', type=str, default='train_text/train_crop_img_CUB.txt')
+parser.add_argument('--cub_train_classes', type=str, default='train_text/train_crop_classes_CUB.txt')
+# parser.add_argument('--cub_train_bbox', type=str, default='train_text/train_bbox_CUB.txt')
 
-parser.add_argument('--cub_dev_img', type=str, default='train_text/dev_img_CUB.txt')
-parser.add_argument('--cub_dev_classes', type=str, default='train_text/dev_classes_CUB.txt')
-parser.add_argument('--cub_dev_bbox', type=str, default='train_text/dev_bbox_CUB.txt')
+parser.add_argument('--cub_dev_img', type=str, default='train_text/dev_crop_img_CUB.txt')
+parser.add_argument('--cub_dev_classes', type=str, default='train_text/dev_crop_classes_CUB.txt')
+# parser.add_argument('--cub_dev_bbox', type=str, default='train_text/dev_bbox_CUB.txt')
 
-parser.add_argument('--cub_test_img', type=str, default='train_text/test_img_CUB.txt')
-parser.add_argument('--cub_test_classes', type=str, default='train_text/test_classes_CUB.txt')
-parser.add_argument('--cub_test_bbox', type=str, default='train_text/test_bbox_CUB.txt')
+parser.add_argument('--cub_test_img', type=str, default='train_text/test_crop_img_CUB.txt')
+parser.add_argument('--cub_test_classes', type=str, default='train_text/test_crop_classes_CUB.txt')
+# parser.add_argument('--cub_test_bbox', type=str, default='train_text/test_bbox_CUB.txt')
 
 # :: SVHN data ::
 parser.add_argument('--svhn_train_img', type=str, default='train_text/SVHN_train_img.txt')
@@ -93,11 +96,12 @@ parser.add_argument('--attn_sample', type=str, default='down')
 parser.add_argument('--attn_cost', type=str, default='dp')
 parser.add_argument('--stats', type=int, default=25)
 parser.add_argument('--eval', type=int, default=100)
+parser.add_argument('--attnmap_output', type=str)
 args = parser.parse_args()
 
-if(args.data != 'cifar10'):
-    print("Initial stages; please provide cifar10 data only!")
-    exit()
+# if(args.data != 'cifar10'):
+#     print("Initial stages; please provide cifar10 data only!")
+#     exit()
 
 # :: TensorFlow logging utility ::
 logging = tf.logging
@@ -131,7 +135,7 @@ train_data = {
                 'cifar10': (args.cifar10_train_img, args.cifar10_train_classes, args.cifar10_dev_img, args.cifar10_dev_classes, args.cifar10_test_img, args.cifar10_test_classes),
                 'cifar100': (args.cifar100_train, args.cifar100_dev, args.cifar100_test),
                 'cub': (args.cub_train_img, args.cub_train_classes, args.cub_dev_img, args.cub_dev_classes, args.cub_test_img, args.cub_test_classes),
-                'svhn': (args.svhn_train_img, args.svhn_train_classes, args.svhn_dev_img, args.svhn_train_classes, args.svhn_test_img, args.svhn_test_classes),
+                'svhn': (args.svhn_train_img, args.svhn_train_classes, args.svhn_dev_img, args.svhn_dev_classes, args.svhn_test_img, args.svhn_test_classes),
              }
 
 #------------------------------OBJECT DETECTION DATASET------------------------------#
@@ -144,43 +148,53 @@ odd_data_dict = {
 
 if(args.data == 'odd'):
     
+    if(args.attnmap_output is None):
+        print("Provide output for attention maps")
+        exit()
+
     category = args.odd_category
-    if(category == None):
-        print("Please specify an ODD category")
+    odd_cats = list(odd_data_dict.keys())
+    if(category not in odd_cats):
+        print("Please specify a valid ODD category")
         exit()
     # NOTE - Be sure to get the parameters right for attention!
-    alex_model = []    
+    # Number of classes don't matter
+    # The model is to be loaded from CIFAR trained models
+    alex_model = []
     if(args.model == 'vanilla'):
-        alex_model = model.BaseAlexnet(num_classes, args.drop)    
+        alex_model = model.BaseAlexnet(3, args.drop)    
     elif (args.model == 'attn'):
-        alex_model = model.AttnAlexnet(num_classes, args.drop, combine=args.attn_combine, sample=args.attn_sample)    
+        alex_model = model.AttnAlexnet(3, args.drop, combine=args.attn_combine, sample=args.attn_sample)    
     elif (args.model == 'gap'):
-        alex_model = model.GAPAlexnet(num_classes, args.drop)    
+        alex_model = model.GAPAlexnet(3, args.drop)    
     
-    eval_img, ground_truth = odd_data_dict[category][0], odd_data_dict[category][1]
-    
-    eval_data = data_feed.get_obj_data(eval_img, ground_truth, args.bsize)
+    eval_img, ground_truth = odd_data_dict[category][0], odd_data_dict[category][1]    
+    eval_data = data_feed.get_obj_data(eval_img, ground_truth, args.bsize)    
+    fmap = open(args.attnmap_output, 'wb')
 
-    with tf.device(args.device):
-        for datum in eval_data:
-            map1, map2 = alex_model(datum[0], mode='maps')
-            attention_map = tf.sqrt(map1 * map2)
-            bsize, xdim, ydim = tf.shape(attention_map)[0], tf.shape(attention_map)[1], tf.shape(attention_map)[2]
-            attention_map = tf.reshape([bsize, -1])
-            max_val = tf.reduce_max(attention_map, axis=-1)
-            attention_map /= max_val
-            attention_map = tf.reshape(attention_map, [bsize, xdim, ydim])
-            thresh_list = []
+    with tf.device(args.device):        
+        for i, datum in enumerate(eval_data):
+            if((i+1)%100 == 0):
+                sys.stdout.write(f'\rBatch {i+1}')
+                sys.stdout.flush()
+            attention_map = alex_model(datum[0], mode='maps')
+            # thresh_list = []
             attention_map = attention_map.numpy()
-            for i in range(bsize):
-                thresh_list.append(filters.threshold_otsu(attention_map[i]))
-            thresh_list = np.expand_dims(np.expand_dims(np.array(thresh_list), axis=-1), axis=-1)
-            attention_map[attention_map < thresh_list] = 0
-            attention_map[attention_map >= thresh_list] = 1
-            attention_map = tf.convert_to_tensor(attention_map)
+            gt_map = datum[1].numpy()
+            # Dump to file
+            # Dump attention map and 
+            pickle.dump(attention_map, fmap)
+            pickle.dump(gt_map, fmap)
+            # for i in range(bsize):
+            #     thresh_list.append(skimage.filters.threshold_otsu(attention_map[i]))
+            # thresh_list = np.expand_dims(np.expand_dims(np.array(thresh_list), axis=-1), axis=-1)
+            # attention_map[attention_map < thresh_list] = 0
+            # attention_map[attention_map >= thresh_list] = 1
+            # attention_map = tf.convert_to_tensor(attention_map)
             # TODO - IOU scores
-            
-            
+    print('')
+    fmap.close()            
+    exit() 
 
 
 
@@ -188,6 +202,7 @@ if(args.data == 'odd'):
 #------------------------------OBJECT DETECTION DATASET------------------------------#
 
 num_classes = class_no[args.data]
+print(f"Number of classes = {num_classes}")
 try:
     os.makedirs(checkpoint_dir[args.data])
 except FileExistsError:

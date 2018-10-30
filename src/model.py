@@ -95,11 +95,11 @@ class AttnAlexnet(tf.keras.Model):
         self.fc6 = Dense(units=4096, activation='relu')
         self.drop6 = Dropout(rate=self.keep_prob)
         self.fc7 = Dense(units=4096, activation='relu')
-        
-        self.linear_map4 = Dense(units=384, use_bias=False)
-        self.linear_map5 = Dense(units=256, use_bias=False)
-        self.o4_to_out = Dense(units=4096, use_bias=False)
-        self.o5_to_out = Dense(units=4096, use_bias=False)
+        # NOTE - check - use bias ok?
+        self.linear_map4 = Dense(units=384)
+        self.linear_map5 = Dense(units=256)
+        self.o4_to_out = Dense(units=4096)
+        self.o5_to_out = Dense(units=4096)
         if(self.cost == 'pc'):
             if(self.sample == 'down'):
                 self.u4 = tfe.Variable(tf.random_uniform(minval=-1.0, maxval=1.0, shape=[1,1,384]))
@@ -109,16 +109,16 @@ class AttnAlexnet(tf.keras.Model):
                 self.u5 = tfe.Variable(tf.random_uniform(minval=-1.0, maxval=1.0, shape=[1,1,4096]))
         
         if(self.combine == 'concat'):
-            self.attn_fc = Dense(units=num_classes, use_bias=False)
+            self.attn_fc = Dense(units=num_classes)
         elif(self.combine == 'indep'):
-            self.attn_fc4 = Dense(units=num_classes, use_bias=False)
-            self.attn_fc5 = Dense(units=num_classes, use_bias=False)
+            self.attn_fc4 = Dense(units=num_classes)
+            self.attn_fc5 = Dense(units=num_classes)
 
 
         self.drop7 = Dropout(rate=self.keep_prob)
         self.fc8 = Dense(units=self.num_classes)
 
-        self.map_4_to_5 = Dense(units=256, use_bias=False)
+        self.map_4_to_5 = Dense(units=256)
         self.add_4_5 = Add()
         
         
@@ -259,9 +259,16 @@ class AttnAlexnet(tf.keras.Model):
                 return (prob_4+prob_5)/2.0
         else:
             # Return attention maps
+            # TODO - return SINGLE attention map!
             a_4 = tf.reshape(a_4, [bsize, o4_x, o4_y])
             a_5 = tf.reshape(a_5, [bsize, o5_x, o5_y])
-            return a_4, a_5
+            attention_map = tf.sqrt(a_4 * a_5)
+            xdim, ydim = o4_x, o4_y
+            attention_map = tf.reshape(attention_map, [bsize, -1])
+            max_val = tf.expand_dims(tf.reduce_max(attention_map, axis=-1), axis=-1)
+            attention_map /= max_val
+            attention_map = tf.reshape(attention_map, [bsize, xdim, ydim])            
+            return attention_map
             
 
 def loss_attnalex(alexCNN, datum, mode):
@@ -333,10 +340,12 @@ class GAPAlexnet(tf.keras.Model):
             return logits 
         elif(mode == 'maps'):
             pred_class = int(tf.argmax(logits, axis=-1))
-            weights = self.fc8.weights[0][:, pred_class]
+            weights = tf.convert_to_tensor(self.fc8.get_weights[0][:, pred_class])
             weights = tf.reshape(weights, [256, 1])
-            cam_map = tf.squeeze(tf.matmul(pooled_o5, weights), [3])
-            return pred_class, cam_map
+            cam_map = tf.squeeze(tf.einsum('ijkl,lm->ijkm',pooled_o5, weights), [3])
+            return cam_map
+        else:
+            assert(False)
         # Return 
 
 def loss_gapalex(alexCNN, datum, mode):
