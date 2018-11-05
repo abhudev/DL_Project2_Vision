@@ -50,17 +50,19 @@ def preprocess_cifar100(img, label):
     return img, label
 
 
-def parse_odd(in_img, ground):
-    string1, string2 = tf.read_file(in_img), tf.read_file(ground)
+def parse_odd(in_img):
+    string1 = tf.read_file(in_img)
     # Don't use tf.image.decode_image, or the output shape will be undefined
     input_img = tf.image.decode_jpeg(string1, channels=3)
-    ground_img = tf.image.decode_png(string2, channels=1)
+    
+    # ground_img = tf.image.decode_png(string2, channels=1)
+    
     # This will convert to float values in [0, 1]
     input_img = tf.image.convert_image_dtype(input_img, tf.float32)
     # ground_img = tf.image.convert_image_dtype(ground_img, tf.float32)
     input_img = tf.image.resize_images(input_img, [227, 227])
-    ground_img = tf.image.resize_images(ground_img, [227, 227])
-    return input_img, ground_img
+    # ground_img = tf.image.resize_images(ground_img, [227, 227])
+    return input_img, in_img
 #---------------------------------------------------------------#
 
 func = {'cifar10': parse_cifar10, 'cub': parse_cub, 'svhn': parse_svhn}
@@ -89,8 +91,8 @@ def get_cifar100_data(data_file, batch_size, num_threads=4, mode='train'):
         fp.seek(0)
         data = pickle.load(fp, encoding='bytes')
         # Optional - do only for first 20 instances
-        data[b'data'] = data[b'data'][:20]
-        data[b'fine_labels'] = data[b'fine_labels'][:20]
+        # data[b'data'] = data[b'data'][:20]
+        # data[b'fine_labels'] = data[b'fine_labels'][:20]
         # print(data[b'fine_labels'])
         # exit()
     dataset = tf.data.Dataset.from_tensor_slices((data[b'data'], data[b'fine_labels']))
@@ -106,56 +108,16 @@ def get_cifar100_data(data_file, batch_size, num_threads=4, mode='train'):
 
 # This must be done for each category! Separately! Do the evaluation for 
 # Airplane, Car, Horse
-def get_obj_data(inp_img, ground_truth, batch_size, num_threads=4, mode='train'):
-    with open(inp_img, 'r') as fim, open(ground_truth, 'r') as fg:
-        timg, gimg = [], []
+def get_obj_data(inp_img, batch_size, num_threads=4, mode='train'):
+    with open(inp_img, 'r') as fim:
+        timg = []
         for line in fim:
-            timg.append(line.strip('\n'))
-        for line in fg:
-            gimg.append(line.strip('\n'))
+            timg.append(line.strip('\n'))        
     
-    dataset = tf.data.Dataset.from_tensor_slices((timg, gimg))
-    dataset = dataset.shuffle(len(timg))
+    dataset = tf.data.Dataset.from_tensor_slices(timg)
+    # dataset = dataset.shuffle(len(timg))
     dataset = dataset.map(parse_odd, num_parallel_calls=num_threads)
     # dataset = dataset.map(train_preprocess, num_parallel_calls=4)
     dataset = dataset.batch(batch_size)
     dataset = dataset.prefetch(1)
     return dataset
-
-
-#--------------------OLD CODE--------------------
-
-# def get_cifar_10_data(image_file, class_file, batch_size, num_threads=4, mode='train'):
-#     with open(image_file, 'r') as fim, open(class_file, 'r') as fcin:
-#         filenames, labels = [], []
-#         for line in fim:
-#             filenames.append(line.strip('\n'))
-#         for line in fcin:
-#             labels.append(int(line.strip('\n')))
-    
-#     dataset = tf.data.Dataset.from_tensor_slices((filenames, labels))
-#     dataset = dataset.shuffle(len(filenames))
-#     dataset = dataset.map(parse_cifar10, num_parallel_calls=num_threads)
-#     # dataset = dataset.map(train_preprocess, num_parallel_calls=4)
-#     dataset = dataset.batch(batch_size)
-#     dataset = dataset.prefetch(1)
-#     return dataset
-
-# Get CUB dataset
-# def get_cub_data(image_file, class_file, box_file, batch_size, num_threads=4, mode='train'):
-#     with open(image_file, 'r') as fim, open(class_file, 'r') as fcin, open(box_file, 'r') as fbox:
-#         filenames, labels, box = [], [], []
-#         for line in fim:
-#             filenames.append(line.strip('\n'))
-#         for line in fcin:
-#             labels.append(line.strip('\n'))
-#         for line in fbox:
-#             box.append([float(val) for val in line.split()])    
-    
-#     dataset = tf.data.Dataset.from_tensor_slices((filenames, labels, box))
-#     dataset = dataset.shuffle(len(filenames))
-#     dataset = dataset.map(parse_cub, num_parallel_calls=num_threads)
-#     # dataset = dataset.map(train_preprocess, num_parallel_calls=4)
-#     dataset = dataset.batch(batch_size)
-#     dataset = dataset.prefetch(1)
-#     return dataset

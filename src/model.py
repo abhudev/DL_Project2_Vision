@@ -5,7 +5,6 @@ import os
 import time
 from tensorflow.keras.layers import Conv2D, MaxPool2D, ZeroPadding2D, Dense, Dropout, Flatten, Add, GlobalAveragePooling2D, BatchNormalization
 from tensorflow.nn import local_response_normalization as lrn
-import tensorflow.keras.backend as K
 
 # Followed tutorial on https://github.com/madalinabuzau/tensorflow-eager-tutorials/blob/master/07_convolutional_neural_networks_for_emotion_recognition.ipynb
 
@@ -101,10 +100,10 @@ class AttnAlexnet(tf.keras.Model):
         self.drop6 = Dropout(rate=self.keep_prob)
         self.fc7 = Dense(units=4096, activation='relu')
         # NOTE - check - use bias ok?
-        self.linear_map4 = Dense(units=384)
-        self.linear_map5 = Dense(units=256)
-        self.o4_to_out = Dense(units=4096)
-        self.o5_to_out = Dense(units=4096)
+        self.linear_map4 = Dense(units=384, use_bias=False)
+        self.linear_map5 = Dense(units=256, use_bias=False)
+        self.o4_to_out = Dense(units=4096, use_bias=False)
+        self.o5_to_out = Dense(units=4096, use_bias=False)
         if(self.cost == 'pc'):
             if(self.sample == 'down'):
                 self.u4 = tfe.Variable(tf.random_uniform(minval=-1.0, maxval=1.0, shape=[1,1,384]))
@@ -114,10 +113,10 @@ class AttnAlexnet(tf.keras.Model):
                 self.u5 = tfe.Variable(tf.random_uniform(minval=-1.0, maxval=1.0, shape=[1,1,4096]))
         
         if(self.combine == 'concat'):
-            self.attn_fc = Dense(units=num_classes)
+            self.attn_fc = Dense(units=num_classes, use_bias=False)
         elif(self.combine == 'indep'):
-            self.attn_fc4 = Dense(units=num_classes)
-            self.attn_fc5 = Dense(units=num_classes)
+            self.attn_fc4 = Dense(units=num_classes, use_bias=False)
+            self.attn_fc5 = Dense(units=num_classes, use_bias=False)
 
 
         self.drop7 = Dropout(rate=self.keep_prob)
@@ -130,10 +129,10 @@ class AttnAlexnet(tf.keras.Model):
         self.num_classes = num_classes
         self.fc8 = Dense(units=self.num_classes)
         if(self.combine == 'concat'):
-            self.attn_fc = Dense(units=num_classes)
+            self.attn_fc = Dense(units=num_classes, use_bias=False)
         elif(self.combine == 'indep'):
-            self.attn_fc4 = Dense(units=num_classes)
-            self.attn_fc5 = Dense(units=num_classes)
+            self.attn_fc4 = Dense(units=num_classes, use_bias=False)
+            self.attn_fc5 = Dense(units=num_classes, use_bias=False)
         
     # Input - datum[0], datum[1] or datum[2], datum[3]
     def call(self, inputImg, mode='train'):  

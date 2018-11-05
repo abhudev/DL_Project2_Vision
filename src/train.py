@@ -70,7 +70,7 @@ parser.add_argument('--odd_horse_img', type=str, default='train_text/Horse_train
 parser.add_argument('--odd_horse_ground', type=str, default='train_text/Horse_ground.txt')
 parser.add_argument('--odd_car_img', type=str, default='train_text/Car_train.txt')
 parser.add_argument('--odd_car_ground', type=str, default='train_text/Car_ground.txt')
-parser.add_argument('--odd_pretrained', type=str, default='cifar10')
+parser.add_argument('--odd_pretrained', type=str)
 
 # :: Checkpoints ::
 parser.add_argument('--ckpt_dir_cifar10', type=str, default='../CHECKPOINTS/Checkpoints_cifar10/')
@@ -91,7 +91,7 @@ parser.add_argument('--drop', type=float, default=0.5)
 parser.add_argument('--bsize', type=int, default=64)
 parser.add_argument('--device', type=str, default="/gpu:0")
 parser.add_argument('--num_epochs', type=int, default=200)
-parser.add_argument('--model', type=str, default='attn')
+parser.add_argument('--model', type=str)
 parser.add_argument('--attn_combine', type=str, default='concat')
 parser.add_argument('--attn_sample', type=str, default='down')
 parser.add_argument('--attn_cost', type=str, default='dp')
@@ -147,6 +147,11 @@ odd_data_dict = {
                     'car': (args.odd_car_img, args.odd_car_ground)
                 }
 
+models_list = ['vanilla', 'attn', 'gap']
+if(args.model not in models_list):
+    print(f"Provide --model in {models_list}")
+    exit()
+
 if(args.data == 'odd'):
     
     # Provide the data - cifar10/100
@@ -161,7 +166,7 @@ if(args.data == 'odd'):
     category = args.odd_category
     odd_cats = list(odd_data_dict.keys())
     if(category not in odd_cats):
-        print("Please specify a valid ODD category")
+        print(f"Please specify a valid ODD category in {odd_cats}")
         exit()
     # NOTE - Be sure to get the parameters right for attention!    
     # The model is to be loaded from CIFAR trained models
@@ -186,22 +191,23 @@ if(args.data == 'odd'):
     saver.restore(tf.train.latest_checkpoint(ckpt_prefix))
 
     eval_img, ground_truth = odd_data_dict[category][0], odd_data_dict[category][1]    
-    eval_data = data_feed.get_obj_data(eval_img, ground_truth, args.bsize)    
+    eval_data = data_feed.get_obj_data(eval_img, args.bsize)    
     fmap = open(args.attnmap_output, 'wb')
     
     with tf.device(args.device):        
         for i, datum in enumerate(eval_data):
-            if((i+1)%100 == 0):
-                sys.stdout.write(f'\rBatch {i+1}')
-                sys.stdout.flush()
+            # if((i+1)%100 == 0):
+            sys.stdout.write(f'\rBatch {i+1}')
+            sys.stdout.flush()
             attention_map = alex_model(datum[0], mode='maps')
             # thresh_list = []
             attention_map = attention_map.numpy()
-            gt_map = datum[1].numpy()
+            # gt_map = datum[1].numpy()
             # Dump to file
             # Dump attention map and 
             pickle.dump(attention_map, fmap)
-            pickle.dump(gt_map, fmap)
+            pickle.dump(datum[1].numpy(), fmap)
+            # pickle.dump(gt_map, fmap)
             # for i in range(bsize):
             #     thresh_list.append(skimage.filters.threshold_otsu(attention_map[i]))
             # thresh_list = np.expand_dims(np.expand_dims(np.array(thresh_list), axis=-1), axis=-1)
