@@ -3,7 +3,7 @@ import tensorflow.contrib.eager as tfe
 import numpy as np
 import os
 import time
-from tensorflow.keras.layers import Conv2D, MaxPool2D, ZeroPadding2D, Dense, Dropout, Flatten, Add, GlobalAveragePooling2D
+from tensorflow.keras.layers import Conv2D, MaxPool2D, ZeroPadding2D, Dense, Dropout, Flatten, Add, GlobalAveragePooling2D, BatchNormalization
 from tensorflow.nn import local_response_normalization as lrn
 import tensorflow.keras.backend as K
 
@@ -34,9 +34,14 @@ class BaseAlexnet(tf.keras.Model):
         self.fc8 = Dense(units=self.num_classes)
         
 
+    def update_last_layer(self, num_classes):
+        self.num_classes = num_classes
+        self.fc8 = Dense(units=num_classes)
+
     # Input - datum[0], datum[1] or datum[2], datum[3]
     def call(self, inputImg, mode='train'):  
         # print(tf.reduce_max(inputImg))      
+        # print(tf.shape(inputImg))
         o1 = lrn(self.pool1(self.conv1(inputImg)), 2, 2e-05, 0.75)
         o2 = lrn((self.pool2(self.conv2(self.pad(o1)))), 2, 2e-05, 0.75)
         o3 = self.conv3(o2)
@@ -121,10 +126,19 @@ class AttnAlexnet(tf.keras.Model):
         self.map_4_to_5 = Dense(units=256)
         self.add_4_5 = Add()
         
+    def update_last_layer(self, num_classes):
+        self.num_classes = num_classes
+        self.fc8 = Dense(units=self.num_classes)
+        if(self.combine == 'concat'):
+            self.attn_fc = Dense(units=num_classes)
+        elif(self.combine == 'indep'):
+            self.attn_fc4 = Dense(units=num_classes)
+            self.attn_fc5 = Dense(units=num_classes)
         
     # Input - datum[0], datum[1] or datum[2], datum[3]
     def call(self, inputImg, mode='train'):  
         # print(tf.reduce_max(inputImg))
+        # print(inputImg.shape)
         o1 = lrn(self.pool1(self.conv1(inputImg)), 2, 2e-05, 0.75)
         # print("o1", tf.shape(o1))
         o2 = lrn(self.pool2(self.conv2(self.pad(o1))), 2, 2e-05, 0.75)
@@ -325,6 +339,9 @@ class GAPAlexnet(tf.keras.Model):
         self.drop_gap = Dropout(rate=self.keep_prob)
         self.fc8 = Dense(units=self.num_classes, use_bias=False)
         
+    def update_last_layer(self, num_classes):
+        self.num_classes = num_classes
+        self.fc8 = Dense(units=self.num_classes, use_bias=False)
         
     # Input - datum[0], datum[1] or datum[2], datum[3]
     def call(self, inputImg, mode='train'):     
@@ -339,10 +356,14 @@ class GAPAlexnet(tf.keras.Model):
         if(mode == 'train' or mode == 'eval'):
             return logits 
         elif(mode == 'maps'):
-            pred_class = int(tf.argmax(logits, axis=-1))
-            weights = tf.convert_to_tensor(self.fc8.get_weights[0][:, pred_class])
-            weights = tf.reshape(weights, [256, 1])
-            cam_map = tf.squeeze(tf.einsum('ijkl,lm->ijkm',pooled_o5, weights), [3])
+            pred_class = (tf.argmax(logits, axis=-1))
+            weights = tf.gather(tf.transpose(tf.convert_to_tensor(self.fc8.get_weights()[0])), pred_class)
+            # weights = tf.convert_to_tensor(self.fc8.get_weights()[0][:, pred_class])
+            weights = tf.expand_dims(weights, axis=-1)
+            bsize, xdim, ydim, c = tf.shape(pooled_o5)[0], tf.shape(pooled_o5)[1], tf.shape(pooled_o5)[2], tf.shape(pooled_o5)[3]
+            pooled_o5 = tf.reshape(pooled_o5, [bsize, xdim*ydim, c])
+            cam_map = tf.squeeze(tf.matmul(pooled_o5, weights), [2])
+            cam_map = tf.reshape(cam_map, [bsize, xdim, ydim])
             return cam_map
         else:
             assert(False)

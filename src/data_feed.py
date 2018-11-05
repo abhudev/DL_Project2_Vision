@@ -9,8 +9,11 @@ def parse_cifar10(filename, label):
     image_string = tf.read_file(filename)
     # Don't use tf.image.decode_image, or the output shape will be undefined
     image = tf.image.decode_png(image_string, channels=3)
+    # print(image)
     # This will convert to float values in [0, 1]
     image = tf.image.convert_image_dtype(image, tf.float32)
+    # print(image)
+    # exit()
     image = tf.image.resize_images(image, [227, 227])
     return image, label
 
@@ -37,8 +40,13 @@ def parse_svhn(filename, label):
 
 
 def preprocess_cifar100(img, label):
-    img = tf.image.convert_image_dtype(img, tf.float32)
+    # print(img)
+    # img = tf.image.convert_image_dtype(img, tf.float32)
+    # img /= 255.0
+    # print(img)
+    # exit()
     img = tf.image.resize_images(img, [227, 227])
+    img = tf.divide(img, 255.0)
     return img, label
 
 
@@ -46,7 +54,7 @@ def parse_odd(in_img, ground):
     string1, string2 = tf.read_file(in_img), tf.read_file(ground)
     # Don't use tf.image.decode_image, or the output shape will be undefined
     input_img = tf.image.decode_jpeg(string1, channels=3)
-    ground_img = tf.image.decode_png(string2, channels=3)
+    ground_img = tf.image.decode_png(string2, channels=1)
     # This will convert to float values in [0, 1]
     input_img = tf.image.convert_image_dtype(input_img, tf.float32)
     # ground_img = tf.image.convert_image_dtype(ground_img, tf.float32)
@@ -77,13 +85,23 @@ def get_img_data(image_file, class_file, batch_size, in_data, num_threads=4, mod
 
 def get_cifar100_data(data_file, batch_size, num_threads=4, mode='train'):
     with open(data_file, "rb") as fp:
+        # print(data_file)
         fp.seek(0)
         data = pickle.load(fp, encoding='bytes')
-    
+        # Optional - do only for first 20 instances
+        data[b'data'] = data[b'data'][:20]
+        data[b'fine_labels'] = data[b'fine_labels'][:20]
+        # print(data[b'fine_labels'])
+        # exit()
     dataset = tf.data.Dataset.from_tensor_slices((data[b'data'], data[b'fine_labels']))
-    dataset = dataset.map(lambda im, lb: (np.reshape(im, [32,32,3]), lb), num_parallel_calls=num_threads)
-    dataset = dataset.shuffle( data[b'data'].shape[0] )
+    dataset = dataset.map(lambda im, lb: (tf.reshape(im, [32,32,3]), lb), num_parallel_calls=num_threads)
+    # print(dataset[0][0])
+    dataset = dataset.shuffle( len(data[b'data']) )
     dataset = dataset.map(preprocess_cifar100, num_parallel_calls=num_threads)
+    # print(dataset[0][0])
+    # exit()
+    dataset = dataset.batch(batch_size)
+    dataset = dataset.prefetch(1)
     return dataset
 
 # This must be done for each category! Separately! Do the evaluation for 

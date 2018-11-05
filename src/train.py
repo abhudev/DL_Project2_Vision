@@ -70,6 +70,7 @@ parser.add_argument('--odd_horse_img', type=str, default='train_text/Horse_train
 parser.add_argument('--odd_horse_ground', type=str, default='train_text/Horse_ground.txt')
 parser.add_argument('--odd_car_img', type=str, default='train_text/Car_train.txt')
 parser.add_argument('--odd_car_ground', type=str, default='train_text/Car_ground.txt')
+parser.add_argument('--odd_pretrained', type=str, default='cifar10')
 
 # :: Checkpoints ::
 parser.add_argument('--ckpt_dir_cifar10', type=str, default='../CHECKPOINTS/Checkpoints_cifar10/')
@@ -148,6 +149,11 @@ odd_data_dict = {
 
 if(args.data == 'odd'):
     
+    # Provide the data - cifar10/100
+    if(args.odd_pretrained not in ['cifar10', 'cifar100']):
+        print("ODD needs CIFAR10 or CIFAR100 weights")
+        exit()
+        
     if(args.attnmap_output is None):
         print("Provide output for attention maps")
         exit()
@@ -157,21 +163,32 @@ if(args.data == 'odd'):
     if(category not in odd_cats):
         print("Please specify a valid ODD category")
         exit()
-    # NOTE - Be sure to get the parameters right for attention!
-    # Number of classes don't matter
+    # NOTE - Be sure to get the parameters right for attention!    
     # The model is to be loaded from CIFAR trained models
     alex_model = []
     if(args.model == 'vanilla'):
-        alex_model = model.BaseAlexnet(3, args.drop)    
+        print("Vanilla model can't do segmentation")
+        exit()        
     elif (args.model == 'attn'):
-        alex_model = model.AttnAlexnet(3, args.drop, combine=args.attn_combine, sample=args.attn_sample)    
+        alex_model = model.AttnAlexnet(class_no[args.odd_pretrained], args.drop, combine=args.attn_combine, sample=args.attn_sample)    
     elif (args.model == 'gap'):
-        alex_model = model.GAPAlexnet(3, args.drop)    
+        alex_model = model.GAPAlexnet(class_no[args.odd_pretrained], args.drop)
     
+    opt = []
+    if(args.opt == 'adam'):
+        opt = tf.train.AdamOptimizer(learning_rate=args.lr)
+    elif(args.opt == 'sgd'):
+        opt = tf.train.GradientDescentOptimizer(learning_rate=args.lr)
+
+    ckpt_prefix = os.path.join(checkpoint_dir[args.odd_pretrained], args.ckpt_file)
+    saver = tfe.Checkpoint(optimizer=opt, model=alex_model, optimizer_step=tf.train.get_or_create_global_step())
+
+    saver.restore(tf.train.latest_checkpoint(ckpt_prefix))
+
     eval_img, ground_truth = odd_data_dict[category][0], odd_data_dict[category][1]    
     eval_data = data_feed.get_obj_data(eval_img, ground_truth, args.bsize)    
     fmap = open(args.attnmap_output, 'wb')
-
+    
     with tf.device(args.device):        
         for i, datum in enumerate(eval_data):
             if((i+1)%100 == 0):
@@ -197,12 +214,13 @@ if(args.data == 'odd'):
     exit() 
 
 
-
-
 #------------------------------OBJECT DETECTION DATASET------------------------------#
 
 num_classes = class_no[args.data]
 print(f"Number of classes = {num_classes}")
+if(args.data == 'cub'):
+    # First do it for cifar 100
+    num_classes = class_no['cifar100']
 try:
     os.makedirs(checkpoint_dir[args.data])
 except FileExistsError:
@@ -239,8 +257,22 @@ if(args.data in ['cifar10', 'cub', 'svhn']):
     dev_data = data_feed.get_img_data(model_data[2], model_data[3], args.bsize, args.data, mode='eval')
     test_data = data_feed.get_img_data(model_data[4], model_data[5], args.bsize, args.data, mode='eval')
 elif(args.data == 'cifar100'):
-    train_data = data_feed.get_cifar100_data(args.cifar10_train_img, args.cifar10_train_classes, args.bsize, args.data)
-    dev_data = data_feed.get_cifar100_data(args.cifar10_dev_img, args.cifar10_dev_classes, args.bsize, args.data, mode='eval')
+    train_data = data_feed.get_cifar100_data(args.cifar100_train, args.bsize)
+    dev_data = data_feed.get_cifar100_data(args.cifar100_dev, args.bsize)
+    test_data = data_feed.get_cifar100_data(args.cifar100_test, args.bsize)
+    
+
+
+
+if(args.data == 'cub'):
+    # First loading of model must be from CIFATR100
+    pretrained_ckpt_prefix = os.path.join(checkpoint_dir['cifar100'], args.ckpt_file)    
+    pretrained_saver = tfe.Checkpoint(optimizer=opt, model=alex_model, optimizer_step=tf.train.get_or_create_global_step())
+    pretrained_saver.restore(tf.train.latest_checkpoint(pretrained_ckpt_prefix))
+
+    num_classes = class_no[args.data]
+    alex_model.update_last_layer(num_classes)
+        
 
 saver = tfe.Checkpoint(optimizer=opt, model=alex_model, optimizer_step=tf.train.get_or_create_global_step())
 # saver.restore(tf.train.latest_checkpoint(regular_ckpt_prefix))
@@ -267,13 +299,17 @@ with tf.device(args.device):
         log_msg(f"Begin Epoch {epoch_num}")
         start_reg = time.time()
         # :: CIFAR 10 epoch ::
-        for step_num, datum in enumerate(train_data, start=1):            
+        for step_num, datum in enumerate(train_data, start=1):
+            
             # loss_value, gradients = model.alex_loss_grads(alex_model, datum, 'train')
             # loss_value, gradients = model.attnalex_loss_grads(alex_model, datum, 'train')
             loss_value, gradients = loss_fn(alex_model, datum, 'train')
             opt.apply_gradients(gradients, global_step=tf.train.get_or_create_global_step())    
 
             if step_num % STATS_STEPS == 0:
+                # print(datum[0][0])
+                # print(tf.reduce_max(datum[0][0]))
+                # print(tf.reduce_min(datum[0][0]))
                 loss_avg = np.average(np.asarray(loss_value))
                 log_msg(f'Epoch: {epoch_num} Step: {step_num} Avg Loss: {loss_avg}')
                 fp_train.write(str(loss_avg)+'\n')
