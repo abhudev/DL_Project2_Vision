@@ -147,7 +147,7 @@ odd_data_dict = {
                     'car': (args.odd_car_img, args.odd_car_ground)
                 }
 
-models_list = ['vanilla', 'attn', 'gap']
+models_list = ['vanilla', 'attn', 'gap', 'attn2']
 if(args.model not in models_list):
     print(f"Provide --model in {models_list}")
     exit()
@@ -175,7 +175,9 @@ if(args.data == 'odd'):
         print("Vanilla model can't do segmentation")
         exit()        
     elif (args.model == 'attn'):
-        alex_model = model.AttnAlexnet(class_no[args.odd_pretrained], args.drop, combine=args.attn_combine, sample=args.attn_sample)    
+        alex_model = model.AttnAlexnet(class_no[args.odd_pretrained], args.drop, combine=args.attn_combine, sample=args.attn_sample, cost=args.attn_cost)    
+    elif (args.model == 'attn2'):
+        alex_model = model.AttnAlexnet2(class_no[args.odd_pretrained], args.drop, combine=args.attn_combine, sample=args.attn_sample, cost=args.attn_cost)
     elif (args.model == 'gap'):
         alex_model = model.GAPAlexnet(class_no[args.odd_pretrained], args.drop)
     
@@ -185,10 +187,15 @@ if(args.data == 'odd'):
     elif(args.opt == 'sgd'):
         opt = tf.train.GradientDescentOptimizer(learning_rate=args.lr)
 
-    ckpt_prefix = os.path.join(checkpoint_dir[args.odd_pretrained], args.ckpt_file)
+    # ckpt_prefix = os.path.join(checkpoint_dir[args.odd_pretrained], args.ckpt_file)
+    ckpt_prefix = checkpoint_dir[args.odd_pretrained]
     saver = tfe.Checkpoint(optimizer=opt, model=alex_model, optimizer_step=tf.train.get_or_create_global_step())
+    log_msg(f"Restoring from {ckpt_prefix}:")
 
-    saver.restore(tf.train.latest_checkpoint(ckpt_prefix))
+    CKPT = tf.train.latest_checkpoint(ckpt_prefix)
+    print(f"CHECKPOINT - {CKPT}")
+
+    saver.restore(CKPT)
 
     eval_img, ground_truth = odd_data_dict[category][0], odd_data_dict[category][1]    
     eval_data = data_feed.get_obj_data(eval_img, args.bsize)    
@@ -199,7 +206,8 @@ if(args.data == 'odd'):
             # if((i+1)%100 == 0):
             sys.stdout.write(f'\rBatch {i+1}')
             sys.stdout.flush()
-            attention_map = alex_model(datum[0], mode='maps')
+            # print(datum[[0][0]])
+            attention_map, pred_class = alex_model(datum[0], mode='maps')
             # thresh_list = []
             attention_map = attention_map.numpy()
             # gt_map = datum[1].numpy()
@@ -207,6 +215,8 @@ if(args.data == 'odd'):
             # Dump attention map and 
             pickle.dump(attention_map, fmap)
             pickle.dump(datum[1].numpy(), fmap)
+            pickle.dump(pred_class.numpy(), fmap)
+            print(pred_class[0])
             # pickle.dump(gt_map, fmap)
             # for i in range(bsize):
             #     thresh_list.append(skimage.filters.threshold_otsu(attention_map[i]))
@@ -226,7 +236,7 @@ num_classes = class_no[args.data]
 print(f"Number of classes = {num_classes}")
 if(args.data == 'cub'):
     # First do it for cifar 100
-    num_classes = class_no['cifar100']
+    num_classes = class_no['cifar10']
 try:
     os.makedirs(checkpoint_dir[args.data])
 except FileExistsError:
@@ -246,8 +256,11 @@ if(args.model == 'vanilla'):
     alex_model = model.BaseAlexnet(num_classes, args.drop)
     loss_fn = model.alex_loss_grads
 elif (args.model == 'attn'):
-    alex_model = model.AttnAlexnet(num_classes, args.drop, combine=args.attn_combine, sample=args.attn_sample)
+    alex_model = model.AttnAlexnet(num_classes, args.drop, combine=args.attn_combine, sample=args.attn_sample, cost=args.attn_cost)
     loss_fn = model.attnalex_loss_grads
+elif (args.model == 'attn2'):
+    alex_model = model.AttnAlexnet2(num_classes, args.drop, combine=args.attn_combine, sample=args.attn_sample, cost=args.attn_cost)
+    loss_fn = model.attnalex2_loss_grads
 elif (args.model == 'gap'):
     alex_model = model.GAPAlexnet(num_classes, args.drop)
     loss_fn = model.gapalex_loss_grads
@@ -271,13 +284,16 @@ elif(args.data == 'cifar100'):
 
 
 if(args.data == 'cub'):
-    # First loading of model must be from CIFATR100
-    pretrained_ckpt_prefix = os.path.join(checkpoint_dir['cifar100'], args.ckpt_file)    
+    # First loading of model must be from CIFAR100
+    pretrained_ckpt_prefix = checkpoint_dir['cifar10']
     pretrained_saver = tfe.Checkpoint(optimizer=opt, model=alex_model, optimizer_step=tf.train.get_or_create_global_step())
-    pretrained_saver.restore(tf.train.latest_checkpoint(pretrained_ckpt_prefix))
+    latest_chk = tf.train.latest_checkpoint(pretrained_ckpt_prefix)
+    log_msg(f"Restoring CIFAR10 for CUB: {latest_chk}")
+    pretrained_saver.restore(latest_chk)
 
     num_classes = class_no[args.data]
     alex_model.update_last_layer(num_classes)
+    log_msg("Successfully updated model")
         
 
 saver = tfe.Checkpoint(optimizer=opt, model=alex_model, optimizer_step=tf.train.get_or_create_global_step())
@@ -295,6 +311,7 @@ fp_dev_acc = open(args.dev_acc, 'w')
 fp_test_acc = open(args.test_acc, 'w')
 
 
+# saver.restore(tf.train.latest_checkpoint(ckpt_prefix))
 with tf.device(args.device):
     start_reg = time.time()
     for epoch_num in range(args.num_epochs):
