@@ -12,7 +12,6 @@ parser.add_argument('--attn_map', type=str)
 parser.add_argument('--category', type=str)
 parser.add_argument('--thresh', type=float, default=0.5)
 parser.add_argument('--out_fol', type=str)
-parser.add_argument('--out_labels', type=str)
 args = parser.parse_args()
 
 
@@ -22,9 +21,6 @@ if(args.attn_map is None):
 if(args.out_fol is None):
    print("Provide --out_fol")
    exit() 
-if(args.out_labels is None):
-    print("Provide --out_labels")
-    exit() 
 cats = ['airplane', 'car', 'horse']
 
 ground_truth = {
@@ -88,46 +84,25 @@ with open(args.attn_map, "rb") as fp:
                 os.makedirs(args.out_fol)
             except:
                 pass
-
-            tot_c = 0
-            correct_c = 0
+            
             tot_inter = 0
-            tot_union = 0
-            flo = open(args.out_labels, 'w')
-            for i in range(num_imgs):
-                flo.write(f"{labels[i]}\n")
+            tot_union = 0            
+            for i in range(num_imgs):                
                 if((i+1) % 100 == 0):
-                    print(f"Image {i+1} has label {labels[i]}")
+                    print(f"Image {i+1}")
                 prediction, gt_orig = maps[i], ground_imgs[i]
                 prediction -= np.amin(prediction)
-                prediction = prediction / np.amax(prediction)
-                # print(prediction)
-                # if(i == 1):
-                #     print(gt)
-                #     print(np.sum(gt))
-                #     print(np.where(gt == 255))
-                #     print(gt.shape[0]*gt.shape[1])
-                #     exit()
-                # print(prediction.shape)
-                # print(gt.shape)
-                # exit()
+                prediction = prediction / np.amax(prediction)                
                 prediction = transform.resize(prediction, gt_orig.shape)
-                # Write attn map to file
-                # save_img = prediction * 255.0/np.amax(prediction)                
-                # print(np.amax(gt))
-
-                # exit()
-                # gt = []
+                
                 if(np.amax(gt_orig) == 255):
                     gt = (gt_orig / 255).copy()
                 else:
                     gt = gt_orig.copy()
                 
                 # io.imsave(args.out_fol+f'/gt_{i}.png', np.ndarray.astype(gt*255, np.uint8))
-                # i1 = np.zeros_like(orig_images[i])
-                # i2 = np.zeros_like(orig_images[i])
-                # i3 = np.zeros_like(orig_images[i])
                 # RGB map taken from:
+                # https://stackoverflow.com/questions/20792445/calculate-rgb-value-for-a-range-of-values-to-create-heat-map                                
                 map_pred = 2*prediction
                 bm = np.maximum(0, 100*(1-map_pred))
                 rm = np.maximum(0, 100*(map_pred-1))
@@ -150,22 +125,15 @@ with open(args.attn_map, "rb") as fp:
                 write_img[:,:,2] = bm
                 final_img = np.ndarray.astype(np.minimum(255, 0.5*orig_images[i]+write_img), np.uint8)
                 # final_img = np.ndarray.astype(np.minimum(255, write_img), np.uint8)
-                # https://stackoverflow.com/questions/20792445/calculate-rgb-value-for-a-range-of-values-to-create-heat-map                                
                 # io.imsave(args.out_fol+f'/heat_{i}.png', final_img)
                 try:
                     threshold = filters.threshold_otsu(prediction)
                 except:
                     continue
                 # io.imsave(args.out_fol+f'/map_pred_{i}.png', np.ndarray.astype(prediction*255, np.uint8))
-                # print("GAP EXTREMES", np.amax(prediction), np.amin(prediction))
                 prediction[prediction < threshold] = 0
                 prediction[prediction >= threshold] = 1
-                # print("GAP EXTREMES", np.amax(prediction), np.amin(prediction))
                 # io.imsave(args.out_fol+f'/pred_{i}.png', np.ndarray.astype(prediction*255, np.uint8))
-                # prediction = transform.resize(prediction, gt.shape)
-                # prediction[prediction < threshold] = 0
-                # prediction[prediction >= threshold] = 1
-                # print(f"Pred sum = {np.sum(prediction)}, threshold={threshold}")
                 # IOU
                 gt_scale = gt
                 # print("MAX",np.amax(gt))
@@ -174,11 +142,7 @@ with open(args.attn_map, "rb") as fp:
                 iou = intersection/union
                 tot_inter += intersection
                 tot_union += union
-                if(iou >= 0.5):
-                    correct_c += 1
-                tot_c += 1
-            print(f"Score = {correct_c/tot_c}")
-            print(f"Total jaccard = {tot_inter/tot_union}")
+            print(f"Score = {tot_inter/tot_union}")
             exit()
             
 
