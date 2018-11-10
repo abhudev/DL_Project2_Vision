@@ -31,7 +31,11 @@ class BaseAlexnet(tf.keras.Model):
         self.fc7 = Dense(units=4096, activation='relu')
         self.drop7 = Dropout(rate=self.keep_prob)
         self.fc8 = Dense(units=self.num_classes)
-        
+        self.bn1 = BatchNormalization(axis=-1)
+        self.bn2 = BatchNormalization(axis=-1)
+        self.bn3 = BatchNormalization(axis=-1)
+        self.bn4 = BatchNormalization(axis=-1)
+        self.bn5 = BatchNormalization(axis=-1)
 
     def update_last_layer(self, num_classes):
         self.num_classes = num_classes
@@ -41,20 +45,31 @@ class BaseAlexnet(tf.keras.Model):
     def call(self, inputImg, mode='train'):  
         # print(tf.reduce_max(inputImg))      
         # print(tf.shape(inputImg))
+        train_bool = False
+        if(mode == 'train'):
+            train_bool = True
         o1 = lrn(self.pool1(self.conv1(inputImg)), 2, 2e-05, 0.75)
         o2 = lrn((self.pool2(self.conv2(self.pad(o1)))), 2, 2e-05, 0.75)
-        o3 = self.conv3(o2)
-        o4 = self.conv4(o3)
-        o5 = self.conv5(o4)
+        o3 = self.conv3(o2) 
+        
+        # o1 = self.pool1(self.bn1(self.conv1(inputImg), training=train_bool)) 
+        # o2 = self.pool2(self.bn2(self.conv2(self.pad(o1)), training=train_bool))
+        # o3 = self.bn3(self.conv3(o2), training=train_bool)
+
+        o4 = (self.conv4(o3))
+        o5 = (self.conv5(o4))
+
+        # o4 = self.bn4(self.conv4(o3), training=train_bool)
+        # o5 = self.bn5(self.conv5(o4), training=train_bool)
         # print(tf.shape(o5))
         pooled_o5 = self.pool3(o5)
         flat_o5 = self.flat(pooled_o5)
         o6 = self.fc6(flat_o5)
-        # if(mode == 'train'):
-        #     o6 = self.drop6(o6)
+        if(mode == 'train'):
+            o6 = self.drop6(o6)
         o7 = self.fc7(o6)
-        # if(mode == 'train'):
-        #     o7 = self.drop7(o7)
+        if(mode == 'train'):
+            o7 = self.drop7(o7)
         logits = self.fc8(o7)
         return logits 
         # Return 
@@ -124,6 +139,11 @@ class AttnAlexnet(tf.keras.Model):
 
         self.map_4_to_5 = Dense(units=256)
         self.add_4_5 = Add()
+        self.bn1 = BatchNormalization(axis=-1)
+        self.bn2 = BatchNormalization(axis=-1)
+        self.bn3 = BatchNormalization(axis=-1)
+        self.bn4 = BatchNormalization(axis=-1)
+        self.bn5 = BatchNormalization(axis=-1)
         
     def update_last_layer(self, num_classes):
         self.num_classes = num_classes
@@ -138,32 +158,31 @@ class AttnAlexnet(tf.keras.Model):
     def call(self, inputImg, mode='train'):  
         # print(tf.reduce_max(inputImg))
         # print(inputImg.shape)
+        train_bool = False
+        if(mode == 'train'):
+            train_bool = True
         o1 = lrn(self.pool1(self.conv1(inputImg)), 2, 2e-05, 0.75)
-        # print("o1", tf.shape(o1))
-        o2 = lrn(self.pool2(self.conv2(self.pad(o1))), 2, 2e-05, 0.75)
-        # print("o2", tf.shape(o2))
+        o2 = lrn(self.pool2(self.conv2(self.pad(o1))), 2, 2e-05, 0.75)        
         o3 = self.conv3(o2)
-        # print("o3", tf.shape(o3))
+        # o1 = self.pool1(self.bn1(self.conv1(inputImg), training=train_bool))
+        # o2 = self.pool2(self.bn2(self.conv2(self.pad(o1)), training=train_bool))
+        # o3 = self.bn3(self.conv3(o2), training=train_bool)
         o3 = self.pool3(o3)
-        # print("o3", tf.shape(o3))
-        o4 = self.conv4(o3)
-        # print("o4", tf.shape(o4))
-        o5 = self.conv5(o4)
-        # print("o5", tf.shape(o5))
+        o4 = (self.conv4(o3))
+        o5 = (self.conv5(o4))
+        # o4 = self.bn4(self.conv4(o3), training=train_bool)
+        # o5 = self.bn5(self.conv5(o4), training=train_bool)
         # Shifted pooling layers down
         # pooled_o5 = self.pool3(self.pool2(self.pool1(o5)))
         # pooled_o5 = self.pool3(o5)
         pooled_o5 = (o5)
         flat_o5 = self.flat(pooled_o5)
-        # print("flat_o5", tf.shape(flat_o5))
         o6 = self.fc6(flat_o5)
-        # print("o6", tf.shape(o6))
-        # if(mode == 'train'):
-        #     o6 = self.drop6(o6)
+        if(mode == 'train'):
+            o6 = self.drop6(o6)
         o7 = self.fc7(o6)
-        # print("o7", tf.shape(o7))
-        # if(mode == 'train'):
-        #     o7 = self.drop7(o7)
+        if(mode == 'train'):
+            o7 = self.drop7(o7)
         
         # Use o4 and o5 to get attention
 
@@ -304,7 +323,7 @@ class AttnAlexnet(tf.keras.Model):
             max_val = tf.expand_dims(tf.reduce_max(c_5, axis=-1), axis=-1)
             c_5 /= max_val
 
-            attention_map = c_4
+            attention_map = c_4*c_5
 
             # attention_map = tf.reshape(attention_map, [bsize, -1])
             # min_val = tf.expand_dims(tf.reduce_min(attention_map, axis=-1), axis=-1)
@@ -368,6 +387,11 @@ class GAPAlexnet(tf.keras.Model):
         # self.flat = Flatten()        
         self.drop_gap = Dropout(rate=self.keep_prob)
         self.fc8 = Dense(units=self.num_classes, use_bias=False)
+        self.bn1 = BatchNormalization(axis=-1)
+        self.bn2 = BatchNormalization(axis=-1)
+        self.bn3 = BatchNormalization(axis=-1)
+        self.bn4 = BatchNormalization(axis=-1)
+        self.bn5 = BatchNormalization(axis=-1)
         
     def update_last_layer(self, num_classes):
         self.num_classes = num_classes
@@ -375,11 +399,22 @@ class GAPAlexnet(tf.keras.Model):
         
     # Input - datum[0], datum[1] or datum[2], datum[3]
     def call(self, inputImg, mode='train'):     
+        # o1 = lrn(self.pool1(self.conv1(inputImg)), 2, 2e-05, 0.75)
+        # o2 = lrn((self.pool2(self.conv2(self.pad(o1)))), 2, 2e-05, 0.75)
+        train_bool = False
+        if(mode == 'train'):
+            train_bool = True
         o1 = lrn(self.pool1(self.conv1(inputImg)), 2, 2e-05, 0.75)
-        o2 = lrn((self.pool2(self.conv2(self.pad(o1)))), 2, 2e-05, 0.75)
+        o2 = lrn(self.pool2(self.conv2(self.pad(o1))), 2, 2e-05, 0.75)        
         o3 = self.conv3(o2)
-        o4 = self.conv4(o3)
-        o5 = self.conv5(o4)
+        # o1 = self.pool1(self.bn1(self.conv1(inputImg), training=train_bool))
+        # o2 = self.pool2(self.bn2(self.conv2(self.pad(o1)), training=train_bool) )
+        o3 = (self.conv3(o2))
+        o4 = (self.conv4(o3))
+        o5 = (self.conv4(o4))
+        # o3 = self.bn3(self.conv3(o2), training=train_bool)
+        # o4 = self.bn4(self.conv4(o3), training=train_bool)
+        # o5 = self.bn5(self.conv5(o4), training=train_bool)
         pooled_o5 = self.pool3(o5)
         gap_out = self.gap(pooled_o5)
         logits = self.fc8(gap_out)
@@ -486,18 +521,15 @@ class AttnAlexnet2(tf.keras.Model):
     def call(self, inputImg, mode='train'):  
         # print(tf.reduce_max(inputImg))
         # print(inputImg.shape)
-        o1 = lrn(self.pool1(self.conv1(inputImg)), 2, 2e-05, 0.75)
-        # print("o1", tf.shape(o1))
-        o2 = lrn(self.pool2(self.conv2(self.pad(o1))), 2, 2e-05, 0.75)
-        # print("o2", tf.shape(o2))
-        o3 = self.conv3(o2)
-        # print("o3", tf.shape(o3))
-        # o3 = self.pool3(o3)
-        # print("o3", tf.shape(o3))
+        # o1 = lrn(self.pool1(self.conv1(inputImg)), 2, 2e-05, 0.75)
+        # o2 = lrn(self.pool2(self.conv2(self.pad(o1))), 2, 2e-05, 0.75)
+        o1 = self.pool1(self.conv1(inputImg))
+        o2 = self.pool2(self.conv2(self.pad(o1)))
+        o3 = self.conv3(o2)        
+        # o3 = self.pool3(o3)        
         o4 = self.conv4(o3)
         # print("o4", tf.shape(o4))
-        o5 = self.conv5(o4)
-        # print("o5", tf.shape(o5))
+        o5 = self.conv5(o4)        
         # Shifted pooling layers down
         # pooled_o5 = self.pool3(self.pool2(self.pool1(o5)))
         pooled_o5 = self.pool3(o5)

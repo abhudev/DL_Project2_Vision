@@ -12,6 +12,7 @@ parser.add_argument('--attn_map', type=str)
 parser.add_argument('--category', type=str)
 parser.add_argument('--thresh', type=float, default=0.5)
 parser.add_argument('--out_fol', type=str)
+parser.add_argument('--out_labels', type=str)
 args = parser.parse_args()
 
 
@@ -21,6 +22,9 @@ if(args.attn_map is None):
 if(args.out_fol is None):
    print("Provide --out_fol")
    exit() 
+if(args.out_labels is None):
+    print("Provide --out_labels")
+    exit() 
 cats = ['airplane', 'car', 'horse']
 
 ground_truth = {
@@ -89,8 +93,10 @@ with open(args.attn_map, "rb") as fp:
             correct_c = 0
             tot_inter = 0
             tot_union = 0
+            flo = open(args.out_labels, 'w')
             for i in range(num_imgs):
-                if((i+1) % 10 == 0):
+                flo.write(f"{labels[i]}\n")
+                if((i+1) % 100 == 0):
                     print(f"Image {i+1} has label {labels[i]}")
                 prediction, gt_orig = maps[i], ground_imgs[i]
                 prediction -= np.amin(prediction)
@@ -107,8 +113,7 @@ with open(args.attn_map, "rb") as fp:
                 # exit()
                 prediction = transform.resize(prediction, gt_orig.shape)
                 # Write attn map to file
-                # save_img = prediction * 255.0/np.amax(prediction)
-                # io.imsave(args.out_fol+f'/pred_{i}.png', prediction)
+                # save_img = prediction * 255.0/np.amax(prediction)                
                 # print(np.amax(gt))
 
                 # exit()
@@ -117,18 +122,46 @@ with open(args.attn_map, "rb") as fp:
                     gt = (gt_orig / 255).copy()
                 else:
                     gt = gt_orig.copy()
-                io.imsave(args.out_fol+f'/gt_{i}.png', np.ndarray.astype(gt*255, np.uint8))
-                io.imsave(args.out_fol+f'/orig_{i}.png', orig_images[i])
+                
+                # io.imsave(args.out_fol+f'/gt_{i}.png', np.ndarray.astype(gt*255, np.uint8))
+                # i1 = np.zeros_like(orig_images[i])
+                # i2 = np.zeros_like(orig_images[i])
+                # i3 = np.zeros_like(orig_images[i])
+                # RGB map taken from:
+                map_pred = 2*prediction
+                bm = np.maximum(0, 100*(1-map_pred))
+                rm = np.maximum(0, 100*(map_pred-1))
+                gm = 100 - rm - bm
+                write_img = np.zeros_like(orig_images[i])
+                if(len(write_img.shape) == 2):
+                    X, Y = write_img.shape[0], write_img.shape[1]
+                    write_img = np.zeros([X,Y,3])
+                    or_dup = np.zeros([X,Y,3])
+                    or_dup[:,:,0] = orig_images[i]
+                    or_dup[:,:,1] = orig_images[i]
+                    or_dup[:,:,2] = orig_images[i]
+                    orig_images[i] = or_dup
+                try:
+                    write_img[:,:,0] = rm
+                except:
+                    print(i, orig_images[i].shape, write_img.shape)
+                    exit()
+                write_img[:,:,1] = gm
+                write_img[:,:,2] = bm
+                final_img = np.ndarray.astype(np.minimum(255, 0.5*orig_images[i]+write_img), np.uint8)
+                # final_img = np.ndarray.astype(np.minimum(255, write_img), np.uint8)
+                # https://stackoverflow.com/questions/20792445/calculate-rgb-value-for-a-range-of-values-to-create-heat-map                                
+                # io.imsave(args.out_fol+f'/heat_{i}.png', final_img)
                 try:
                     threshold = filters.threshold_otsu(prediction)
                 except:
                     continue
-                io.imsave(args.out_fol+f'/map_pred_{i}.png', np.ndarray.astype(prediction*255, np.uint8))
+                # io.imsave(args.out_fol+f'/map_pred_{i}.png', np.ndarray.astype(prediction*255, np.uint8))
                 # print("GAP EXTREMES", np.amax(prediction), np.amin(prediction))
                 prediction[prediction < threshold] = 0
                 prediction[prediction >= threshold] = 1
                 # print("GAP EXTREMES", np.amax(prediction), np.amin(prediction))
-                io.imsave(args.out_fol+f'/pred_{i}.png', np.ndarray.astype(prediction*255, np.uint8))
+                # io.imsave(args.out_fol+f'/pred_{i}.png', np.ndarray.astype(prediction*255, np.uint8))
                 # prediction = transform.resize(prediction, gt.shape)
                 # prediction[prediction < threshold] = 0
                 # prediction[prediction >= threshold] = 1
